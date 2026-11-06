@@ -266,15 +266,78 @@ const created = await evaluate(`(async () => {
 })()`);
 check("wallet created and persisted to chrome.storage", created === "saved", String(created));
 
-// The payoff: reload and require the Unlock screen, not onboarding.
+// 6. Background watcher: the service worker must be able to stand up an offscreen
+//    document (an MV3 worker cannot hold a WebSocket itself), and that document must
+//    actually connect and subscribe. Checking only that a document exists would pass
+//    even if it never connected, so the socket state is read out of the document.
+const started = await evaluate(`(async () => {
+  await chrome.storage.local.set({
+    'rxd.watch.enabled': '1',
+    'rxd.watch.list': JSON.stringify({
+      endpoint: 'wss://electrumx.radiant4people.com:50022',
+      scripthashes: ['00'.repeat(32), '11'.repeat(32)],
+      addresses: ['placeholder'],
+      savedAt: Date.now(),
+    }),
+  });
+  return await chrome.runtime.sendMessage({ type: 'watch:start' });
+})()`);
+check("worker accepted watch:start", started?.ok === true, JSON.stringify(started ?? null));
+
+await sleep(1200);
+const hasDocument = await evaluate(`chrome.offscreen.hasDocument()`);
+check("offscreen document created", hasDocument === true, String(hasDocument));
+
+const offscreenTarget = (await listTargets()).find((t) =>
+  t.url?.endsWith("/offscreen.html"),
+);
+check("offscreen target is present", !!offscreenTarget, offscreenTarget?.url ?? "not found");
+
+if (offscreenTarget?.webSocketDebuggerUrl) {
+  const off = await connect(offscreenTarget.webSocketDebuggerUrl);
+  // Give the socket a moment to open and subscribe.
+  let state = null;
+  for (let i = 0; i < 40; i++) {
+    state = await off
+      .send("Runtime.evaluate", {
+        expression: "JSON.stringify(globalThis.__rxdWatcher ?? null)",
+        returnByValue: true,
+      })
+      .then((r) => JSON.parse(r.result?.result?.value ?? "null"))
+      .catch(() => null);
+    if (state?.status === "open" && state?.subscribed >= 2) break;
+    await sleep(250);
+  }
+  check(
+    "watcher connected to the server",
+    state?.status === "open",
+    `status=${state?.status} error=${state?.lastError || "none"}`,
+  );
+  check(
+    "watcher subscribed to every scripthash",
+    state?.subscribed >= 2,
+    `subscribed=${state?.subscribed}`,
+  );
+  off.ws.close();
+}
+
+// 7. The payoff: reload and require the Unlock screen, not onboarding.
 await session.send("Page.enable");
 await session.send("Page.reload", { ignoreCache: true });
-await sleep(1500);
-const afterReload = await evaluate(`({
-  heading: (document.querySelector('h1') || {}).textContent || '',
-  body: document.body.innerText.slice(0, 200),
-  mounted: !!document.querySelector('#root .app'),
-})`);
+// Poll rather than sleep a fixed time: on a cold reload the app briefly shows the
+// splash while it hydrates storage, and asserting during that frame is a false
+// failure (it has happened).
+let afterReload = null;
+for (let i = 0; i < 40; i++) {
+  await sleep(250);
+  afterReload = await evaluate(`({
+    heading: (document.querySelector('h1') || {}).textContent || '',
+    body: document.body.innerText.slice(0, 200),
+    mounted: !!document.querySelector('#root .app'),
+  })`).catch(() => null);
+  const seen = `${afterReload?.body ?? ""}`;
+  if (/welcome back|connect|scanning|create a new wallet/i.test(seen)) break;
+}
 // Landing on either Unlock ("Welcome back") or the connecting splash both prove
 // the wallet persisted — the splash actually proves more, because it means the
 // remembered session in chrome.storage.session was restored too. What must never

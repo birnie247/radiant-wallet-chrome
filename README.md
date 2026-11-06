@@ -93,6 +93,12 @@ Three that cost real time, recorded so they aren't rediscovered:
    now goes through the CDP `Extensions.loadUnpacked` command with
    `--enable-unsafe-extension-debugging`. The old flag silently loads nothing and
    every `chrome-extension://` URL comes back blocked.
+4. **An offscreen document does not get `chrome.storage`.** It sits outside the
+   offscreen API subset, so the background watcher cannot read the watch list itself:
+   the service worker pushes configuration to it by message and answers a
+   `watch:hello` on startup. A runtime `Cannot read properties of undefined (reading
+   'onChanged')` is how that surfaced — and why the extension check asserts the
+   watcher's socket state rather than merely that a document exists.
 
 ## SPV: proving transactions instead of trusting the server
 
@@ -135,15 +141,41 @@ sits near the tip.
 Updating the checkpoint is a one-line change in `spv.ts`; the test suite prints the
 live tip so picking a new one is a copy-and-paste.
 
+## Background updates (offscreen document)
+
+An MV3 service worker is terminated when idle and cannot hold a WebSocket, so the
+extension uses an **offscreen document** to keep one open while the popup is closed.
+When a watched address moves, that document tells the service worker, which lights
+the toolbar badge; opening the popup clears it and rescans.
+
+The design constraint that matters is that **the background never holds a key**. The
+popup hands over only what is already public — an endpoint and the scripthashes of
+the addresses worth watching (`src/lib/watchList.ts`) — so the watcher can keep
+running while the wallet is locked without weakening the passphrase at all. The
+offscreen document contains no SDK, no signing code and no secrets; it speaks raw
+JSON-RPC for `blockchain.scripthash.subscribe` plus a keepalive ping, with backoff
+reconnection.
+
+Two consequences worth knowing:
+
+- It is a **change signal, not a live balance**. The background cannot derive
+  addresses or compute a balance, so the numbers still come from the popup's scan.
+- It is **a privacy choice, not a security one**. Settings → *Stop background
+  updates* closes the socket; while it is on, your server sees you watching those
+  addresses even when the wallet is locked. Deleting the wallet also clears the list
+  and stops the watcher.
+
 
 ## Architecture
 
 ```
 popup.html              two external module scripts: boot-guard, then the app
+offscreen.html          no UI; exists only to hold a WebSocket
 src/
   main.tsx              hydrates storage, then mounts React
   boot-guard.ts         renders real errors instead of a blank popup
-  background.ts         service worker: seed defaults on install, nothing else
+  background.ts         service worker: defaults, watcher lifecycle, badge
+  offscreen.ts          background Electrum subscription (no keys, no SDK)
   lib/
     storage.ts          write-through mirror over chrome.storage.local
     session.ts          unlocked-session lifetime in chrome.storage.session
@@ -156,6 +188,7 @@ src/
     openTab.ts          allowlisted explorer links via chrome.tabs
     reauth.ts           per-payment passphrase confirmation
     spv.ts              header PoW, chain linkage, merkle inclusion
+    watchList.ts        public watch list handed to the background
   screens/              Onboarding, Unlock, Home, Receive, Send, Settings
 public/
   manifest.json         MV3 manifest
@@ -193,10 +226,10 @@ assertion that compared the viewport to itself.
 
 ## Known limitations
 
-1. **No background updates.** The Electrum socket lives only while the popup is
-   open, so balances refresh on open and then by push/poll while you watch. An MV3
-   service worker is terminated when idle and cannot hold a socket. Fixing that
-   properly needs an offscreen document, and it is the obvious next step.
+1. **Background updates are a change signal, not a live balance.** An offscreen
+   document keeps the subscription open and lights the toolbar badge when your
+   addresses move, but the re-scan still happens when the popup opens: the
+   background deliberately holds no keys, so it cannot derive or sign anything.
 2. **Broadcast is proven only by one real send.** The first funded transaction was
    sent from the Android build by the project owner and broadcast successfully;
    everything up to a valid signature is verified in the test suite here too. That is

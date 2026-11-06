@@ -2,6 +2,7 @@ import { useState } from "react";
 import { deleteVault, unlockVault } from "../lib/vault";
 import { SERVERS, setPreferredServer } from "../lib/servers";
 import { UNLOCK_TIMEOUT_OPTIONS, describeUnlockTimeout, clearSession } from "../lib/session";
+import { clearWatchList } from "../lib/watchList";
 import { formatRxd, shortId } from "../lib/money";
 import { formatUsdPrice } from "../lib/price";
 import type { Nav } from "../types";
@@ -166,6 +167,20 @@ export default function Settings({ nav }: { nav: Nav }) {
             Show recovery phrase
           </button>
 
+          <button
+            className="btn"
+            onClick={() => nav.setWatchEnabled(!nav.watchEnabled)}
+          >
+            {nav.watchEnabled
+              ? "Stop background updates"
+              : "Watch for payments in the background"}
+          </button>
+          <div className="hint">
+            {nav.watchEnabled
+              ? "The extension keeps a connection to your server while the popup is closed, and lights the toolbar badge when your addresses change. Only your public addresses are watched — never a key."
+              : "While off, balances update only while the popup is open. Nothing stays connected in the background."}
+          </div>
+
           <div className="hint">
             Screenshots cannot be blocked from a browser extension, so the recovery
             phrase sheet asks for your passphrase every time and clears itself when
@@ -210,6 +225,12 @@ export default function Settings({ nav }: { nav: Nav }) {
                   // Drop any remembered unlock first, so a deleted vault cannot be
                   // reopened from a session still sitting in memory.
                   void clearSession();
+                  // And stop the background watcher: watching a wallet that no
+                  // longer exists here would keep a socket to the user's server
+                  // advertising addresses they just tried to walk away from.
+                  clearWatchList();
+                  const api = (globalThis as { chrome?: typeof chrome }).chrome;
+                  void api?.runtime?.sendMessage({ type: "watch:stop" })?.catch(() => undefined);
                   deleteVault();
                   window.location.reload();
                 }}

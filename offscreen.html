@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Radiant Wallet watcher</title>
+    <!-- No UI here: this document exists only to hold a WebSocket open, because an
+         MV3 service worker cannot. It lives at the build root next to popup.html so
+         background.ts can name it as `offscreen.html`. -->
+  </head>
+  <body>
+    <script type="module" src="/src/offscreen.ts"></script>
+  </body>
+</html>

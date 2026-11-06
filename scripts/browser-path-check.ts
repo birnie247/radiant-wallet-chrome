@@ -962,6 +962,74 @@ if (process.argv.includes("--live")) {
     return (txid[0] === "0" ? "1" : "0") + txid.slice(1);
   }
 }
+// 17. Background watch list: the only thing the extension lets the background know.
+//     It must contain public data only, and a corrupted entry must never be trusted
+//     into a connection.
+{
+  const watch = await import("../src/lib/watchList");
+  const sdk = await import("@radiant-core/sdk");
+
+  // A real mainnet address, because buildWatchList derives scripthashes through the
+  // SDK, which validates the base58 checksum.
+  const ADDRESS = "18qiat9Kff5niCcincht6efD8HhFfzL1AJ";
+  const used = { key: { address: ADDRESS }, used: true } as never;
+  const unused = { key: { address: ADDRESS }, used: false } as never;
+
+  const list = watch.buildWatchList("wss://electrumx.radiant4people.com:50022", [
+    used,
+    unused,
+    unused,
+    unused,
+  ]);
+  check("watch list covers used plus a lookahead", list.addresses.length === 4, String(list.addresses.length));
+  check(
+    "watch list holds scripthashes, not addresses-with-keys",
+    list.scripthashes.length === 4 &&
+      list.scripthashes.every((s) => /^[0-9a-f]{64}$/i.test(s)),
+  );
+  check(
+    "scripthashes match the SDK's derivation",
+    list.scripthashes[0] === sdk.addressToScriptHash(ADDRESS, "mainnet"),
+    list.scripthashes[0]?.slice(0, 16) + "…",
+  );
+  check(
+    "the watch list carries no secret",
+    !JSON.stringify(list).toLowerCase().includes("mnemonic"),
+  );
+
+  watch.saveWatchList(list);
+  const restored = watch.loadWatchList();
+  check(
+    "watch list round-trips through storage",
+    restored?.endpoint === list.endpoint &&
+      restored?.scripthashes.join(",") === list.scripthashes.join(","),
+  );
+
+  // Corrupt or hostile entries must be refused, not connected to.
+  const store = await import("../src/lib/storage");
+  store.setItem("rxd.watch.list", "{not json");
+  check("malformed watch list rejected", watch.loadWatchList() === null);
+  store.setItem(
+    "rxd.watch.list",
+    JSON.stringify({ endpoint: "ws://insecure.example", scripthashes: ["00".repeat(32)] }),
+  );
+  check("non-wss endpoint rejected", watch.loadWatchList() === null);
+  store.setItem(
+    "rxd.watch.list",
+    JSON.stringify({ endpoint: "wss://ok.example:50022", scripthashes: ["nothex"] }),
+  );
+  check("non-hex scripthash rejected", watch.loadWatchList() === null);
+
+  watch.clearWatchList();
+  check("clearing removes the watch list", watch.loadWatchList() === null);
+
+  check("background watching defaults to on", watch.loadWatchEnabled() === true);
+  watch.saveWatchEnabled(false);
+  check("watching can be turned off", watch.loadWatchEnabled() === false);
+  watch.saveWatchEnabled(true);
+}
+
+
 
 
 console.log(`\n${failures === 0 ? "ALL BROWSER-PATH CHECKS PASSED" : failures + " CHECK(S) FAILED"}`);

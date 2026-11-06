@@ -24,6 +24,13 @@ import {
   verifyTransaction,
   type ChainResult,
 } from "./lib/spv";
+import {
+  buildWatchList,
+  clearWatchList,
+  loadWatchEnabled,
+  saveWatchEnabled,
+  saveWatchList,
+} from "./lib/watchList";
 import BrandMark from "./components/BrandMark";
 import Onboarding from "./screens/Onboarding";
 import Unlock from "./screens/Unlock";
@@ -46,6 +53,9 @@ export default function App() {
    * first attempt finishes; `ok` false carries the reason.
    */
   const [spv, setSpv] = useState<ChainResult | null>(null);
+
+  /** Background watching (offscreen document) is on unless the user opts out. */
+  const [watchEnabled, setWatchEnabledState] = useState<boolean>(loadWatchEnabled);
 
   /**
    * How long an unlock survives the popup being closed. See src/lib/session.ts —
@@ -78,6 +88,38 @@ export default function App() {
   const setUnlockTimeoutMs = useCallback((ms: number) => {
     setUnlockTimeoutMsState(ms);
     saveUnlockTimeoutMs(ms);
+  }, []);
+
+  /**
+   * Hand the public watch list to the background, or take it back.
+   *
+   * Only an endpoint and scripthashes cross that boundary — never a key — which is
+   * what makes it safe for the watcher to keep running while the wallet is locked.
+   */
+  const armWatcher = useCallback((next: Session | null, enabled: boolean) => {
+    const api = (globalThis as { chrome?: typeof chrome }).chrome;
+    if (!next || !enabled) {
+      clearWatchList();
+      void api?.runtime?.sendMessage({ type: "watch:stop" })?.catch(() => undefined);
+      return;
+    }
+    saveWatchList(buildWatchList(next.endpoint, next.scan.addresses));
+    void api?.runtime?.sendMessage({ type: "watch:start" })?.catch(() => undefined);
+  }, []);
+
+  const setWatchEnabled = useCallback(
+    (enabled: boolean) => {
+      setWatchEnabledState(enabled);
+      saveWatchEnabled(enabled);
+      armWatcher(session, enabled);
+    },
+    [armWatcher, session],
+  );
+
+  // Opening the popup means the user has seen whatever the badge was about.
+  useEffect(() => {
+    const api = (globalThis as { chrome?: typeof chrome }).chrome;
+    void api?.runtime?.sendMessage({ type: "watch:seen" })?.catch(() => undefined);
   }, []);
 
   const sessionRef = useRef<Session | null>(null);
@@ -252,10 +294,13 @@ export default function App() {
       void hydratePrice();
       // Subscribe to pushes so the balance keeps itself current.
       void establishWatch(next);
+      // And let the background keep watching once the popup closes. Only the
+      // endpoint and scripthashes go across, never the secret.
+      armWatcher(next, loadWatchEnabled());
     } finally {
       setBusy("");
     }
-  }, [hydrateHistory, hydratePrice, establishWatch]);
+  }, [hydrateHistory, hydratePrice, establishWatch, armWatcher]);
 
   /**
    * Restore an unlocked session left behind by a previous popup.
@@ -366,10 +411,12 @@ export default function App() {
       void hydrateHistory(next);
       void hydratePrice();
       void establishWatch(next);
+      // The watched endpoint may have changed with the server switch.
+      armWatcher(next, loadWatchEnabled());
     } finally {
       setBusy("");
     }
-  }, [hydrateHistory, hydratePrice, establishWatch]);
+  }, [hydrateHistory, hydratePrice, establishWatch, armWatcher]);
 
   const lock = useCallback(() => {
     const current = sessionRef.current;
@@ -443,6 +490,8 @@ export default function App() {
     tipDrift,
     unlockTimeoutMs,
     setUnlockTimeoutMs,
+    watchEnabled,
+    setWatchEnabled,
     spv: spv
       ? { ok: spv.ok, tip: spv.tip, checked: spv.checked, reason: spv.reason }
       : null,

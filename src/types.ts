@@ -42,6 +42,13 @@ export interface Nav {
   unlockTimeoutMs: number;
   setUnlockTimeoutMs: (ms: number) => void;
   /**
+   * Whether the extension keeps watching the chain while the popup is closed.
+   * Only public data crosses into the background, so this is a privacy choice
+   * rather than a security one.
+   */
+  watchEnabled: boolean;
+  setWatchEnabled: (enabled: boolean) => void;
+  /**
    * Result of SPV header verification, or null before the first attempt.
    * `ok: false` means the chain could not be verified and `reason` says why —
    * the wallet stays usable, but nothing should claim to be proven.
