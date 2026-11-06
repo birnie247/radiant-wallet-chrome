@@ -49,6 +49,9 @@ const proc = spawn(
   [
     "--headless=new",
     "--disable-gpu",
+    // CI containers: no usable sandbox and a small /dev/shm. No-ops on a desktop.
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
     "--no-first-run",
     "--no-default-browser-check",
     // Required for the Extensions domain below; without it loadUnpacked is refused.

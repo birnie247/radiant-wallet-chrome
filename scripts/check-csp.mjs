@@ -91,6 +91,10 @@ const proc = spawn(
   [
     "--headless=new",
     "--disable-gpu",
+    // Standard for CI containers: Chrome cannot use its sandbox there, and
+    // /dev/shm is small. Both are no-ops on a normal desktop.
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
     "--no-first-run",
     "--no-default-browser-check",
     `--user-data-dir=${profile}`,
@@ -121,7 +125,13 @@ async function pageTarget() {
   throw new Error("no page target appeared");
 }
 
-const target = await pageTarget();
+const target = await pageTarget().catch((e) => {
+  // A Chrome that died on startup is the usual cause, and the exit code is the
+  // only clue the harness can offer.
+  throw new Error(
+    `${e.message} (chrome exit: ${proc.exitCode ?? "still running"}, binary: ${chrome})`,
+  );
+});
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((resolve, reject) => {
   ws.once("open", resolve);
