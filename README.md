@@ -18,23 +18,33 @@ that touched a native layer, because a browser extension has no Keystore, no
 
 **Contents:** [Install](#install) · [What changed from the Android app](#what-changed-from-the-android-app) ·
 [Security model](#security-model) · [MV3 constraints that shaped this](#mv3-constraints-that-shaped-this) ·
-[Architecture](#architecture) · [Testing](#testing) · [Known limitations](#known-limitations) · [Licence](#licence)
+[SPV](#spv-proving-transactions-instead-of-trusting-the-server) ·
+[Background updates](#background-updates-offscreen-document) · [Architecture](#architecture) ·
+[Releasing](#releasing) · [Testing](#testing) · [Known limitations](#known-limitations) · [Licence](#licence)
 
 ---
 
 ## Install
+
+**From a release (no build tools):** download
+`radiant-wallet-extension-<version>.zip` from
+[Releases](https://github.com/birnie247/radiant-wallet-chrome/releases/latest),
+extract it, then open `chrome://extensions` → enable **Developer mode** → **Load
+unpacked** → select the extracted folder.
+
+**From source:**
 
 ```bash
 npm install
 npm run build      # → dist/
 ```
 
-Then in Chrome: `chrome://extensions` → enable **Developer mode** → **Load unpacked**
-→ select the `dist` folder.
+Same last two steps, pointed at `dist`.
 
-There is no packaged `.crx`: Chrome no longer installs one that isn't from the Web
-Store without extra steps, and an unpacked build is the honest way to run code you
-compiled yourself.
+There is no packaged `.crx`: Chrome will not install one from outside the Web Store
+without extra steps, and an unpacked build is the honest way to run code you
+compiled yourself. Chrome will note that the extension is not from the store —
+that is expected for sideloaded code you can read.
 
 For UI work there is also a plain dev server (`npm run dev`), but a browser tab is
 not an extension: `chrome.storage` is absent, so the wallet persists nothing and
@@ -201,6 +211,36 @@ scripts/
 
 The service worker deliberately imports nothing: a shared chunk it had to fetch
 would be one more way for the extension to fail at startup.
+
+## Releasing
+
+```bash
+npm version patch            # or minor/major — the only place the version lives
+npm run build                # prebuild stamps dist/manifest.json from package.json
+npm run publish:release      # zips dist/ and attaches it to a GitHub release
+```
+
+`prebuild` runs `scripts/stamp-manifest.mjs`, so the manifest version can never drift
+from `package.json` — the same drift that once left the Android app's About screen
+showing an old version. `publish:release` refuses to publish if the built manifest
+disagrees with the package.
+
+The release asset is a zip written by `scripts/lib/zip.mjs`: deflate per entry, a
+pinned 1980-01-01 timestamp and sorted entries, so the same tree produces a
+byte-identical archive every time. It is a hand-written writer to avoid depending on
+`zip`/`Compress-Archive` being installed; its output is verified by extracting with
+the OS and comparing hashes.
+
+Release notes are generated from the bytes being uploaded — size, SHA-256 and file
+count are computed, never typed.
+
+### Refresh the checkpoint
+
+`CHECKPOINT` in `src/lib/spv.ts` should be bumped with each release: the chain moves
+~288 blocks a day and the difficulty tolerance is relative to it. The test prints the
+live tip; take a block ~150 deep, paste its height and hash, and `npm run check`
+re-verifies from the new pin. The Android build pins the same block so both clients
+agree.
 
 ## Testing
 
