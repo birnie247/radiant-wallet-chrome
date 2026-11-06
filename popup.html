@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Radiant Wallet</title>
+    <!--
+      Nothing inline in this file: MV3 extension pages are served with
+      `script-src 'self'`, which blocks inline script outright. Both scripts below
+      are external modules for that reason.
+    -->
+  </head>
+  <body>
+    <div id="root"></div>
+    <!--
+      boot-guard.ts is deliberately a separate module graph. If the app bundle
+      throws while evaluating, its own error handling never runs — a second,
+      independent script is what still gets to report the failure.
+    -->
+    <script type="module" src="/src/boot-guard.ts"></script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

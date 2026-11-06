@@ -1,0 +1,751 @@
+/* ============================================================
+   Radiant Wallet — design system
+
+   Tokens are lifted from https://radiantblockchain.org/assets/css/style.css
+   so the app reads as the same product:
+     • true-black canvas (--color-bg: hsl(0,0%,0%))
+     • cyan brand colour (--color-primary: hsl(195,100%,44%) = #00A8E0)
+     • Inter (variable) as the primary typeface
+     • a 4px-based radius scale and hairline borders, not big soft cards
+     • the --color-contrast-* text ladder for hierarchy
+   ============================================================ */
+
+:root {
+  /* Surface ladder — site --color-bg family */
+  --bg: hsl(0, 0%, 0%);
+  --bg-darker: hsl(204, 15%, 6%);
+  --bg-elev: hsl(203, 18%, 9%);
+  --bg-elev-2: hsl(203, 18%, 17%);
+  --bg-elev-3: hsl(204, 15%, 20%);
+
+  /* Hairlines — site --color-contrast-lower */
+  --line: hsl(208, 12%, 24%);
+  --line-soft: hsla(208, 12%, 30%, 0.55);
+
+  /* Text ladder — site --color-contrast-* */
+  --text: hsl(240, 100%, 99%);
+  --text-body: hsl(223, 8%, 82%);
+  --text-dim: hsl(213, 5%, 56%);
+  --text-faint: hsl(208, 6%, 40%);
+
+  /* Brand — site --color-primary / accent */
+  --accent: hsl(195, 100%, 44%);
+  --accent-light: hsl(195, 100%, 56%);
+  --accent-dark: hsl(195, 100%, 38%);
+  --accent-ink: hsl(203, 100%, 7%);
+
+  /* Translucent tints (avoid color-mix for older WebViews) */
+  --accent-08: hsla(195, 100%, 44%, 0.08);
+  --accent-14: hsla(195, 100%, 44%, 0.14);
+  --accent-25: hsla(195, 100%, 44%, 0.25);
+  --accent-35: hsla(195, 100%, 44%, 0.35);
+
+  --danger: hsl(0, 78%, 62%);
+  --danger-05: hsla(0, 78%, 62%, 0.05);
+  --danger-07: hsla(0, 78%, 62%, 0.07);
+  --danger-30: hsla(0, 78%, 62%, 0.3);
+  --danger-35: hsla(0, 78%, 62%, 0.35);
+
+  --success: hsl(150, 60%, 45%);
+  --success-08: hsla(150, 60%, 45%, 0.08);
+  --success-30: hsla(150, 60%, 45%, 0.3);
+  --success-35: hsla(150, 60%, 45%, 0.35);
+
+  --scrim: hsla(0, 0%, 0%, 0.72);
+  /* Site --color-contrast-lowest, used as the default button fill */
+  --btn-bg: hsl(240, 1%, 10%);
+
+  /* Geometry — the site multiplies a 0.25em (4px) base radius */
+  --radius: 6px;
+  --radius-sm: 4px;
+  --radius-lg: 10px;
+  --gap: 16px;
+
+  --font: "Inter Variable", Inter, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Roboto Mono", Menlo, Consolas, monospace;
+
+  --shadow-sm: 0 0.3px 0.4px rgba(0, 0, 0, 0.025),
+    0 0.9px 1.5px rgba(0, 0, 0, 0.05), 0 3.5px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* Light theme, mirroring the site's own light token set. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: hsl(0, 0%, 100%);
+    --bg-darker: hsl(240, 4%, 97%);
+    --bg-elev: hsl(240, 4%, 97%);
+    --bg-elev-2: hsl(240, 4%, 93%);
+    --bg-elev-3: hsl(240, 4%, 89%);
+
+    --line: hsl(240, 4%, 87%);
+    --line-soft: hsla(240, 4%, 70%, 0.5);
+
+    --text: hsl(240, 6%, 10%);
+    --text-body: hsl(240, 4%, 22%);
+    --text-dim: hsl(208, 6%, 42%);
+    --text-faint: hsl(213, 5%, 55%);
+
+    /* Text ON cyan stays dark in both themes — white on #00A8E0 is unreadable. */
+    --accent-ink: hsl(203, 100%, 8%);
+
+    --danger: hsl(0, 70%, 45%);
+    --success: hsl(150, 60%, 32%);
+    --scrim: hsla(240, 6%, 10%, 0.55);
+    --btn-bg: hsl(240, 4%, 90%);
+  }
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.45;
+  overscroll-behavior-y: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------------- app shell ---------------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px
+    calc(env(safe-area-inset-bottom, 0px) + 16px);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  margin-bottom: 8px;
+}
+
+.topbar h1 {
+  font-size: 17px;
+  font-weight: 650;
+  margin: 0;
+  flex: 1;
+  letter-spacing: 0.2px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.brand-mark {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.brand-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+/* The mark is cyan + cream; cream is invisible on white, so light mode uses the
+   single-ink dark variant instead.
+   NOTE: these selectors must out-specify `.brand-mark img` above (0,1,1) or the
+   hidden variant still renders — which stacks a second glyph underneath. */
+.brand-mark img.brand-mark-mono {
+  display: none;
+}
+
+@media (prefers-color-scheme: light) {
+  .brand-mark img.brand-mark-colour {
+    display: none;
+  }
+  .brand-mark img.brand-mark-mono {
+    display: block;
+  }
+}
+
+.brand-name {
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.brand-name small {
+  display: block;
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.icon-btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--bg-elev);
+  color: var(--text-dim);
+  border-radius: var(--radius-sm);
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.icon-btn:active {
+  color: var(--accent);
+  border-color: var(--accent-dark);
+}
+
+.content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding-bottom: 8px;
+}
+
+/* ---------------- cards ---------------- */
+
+.card {
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+
+.card.tight {
+  padding: 14px;
+}
+
+.balance-card {
+  background: radial-gradient(
+      130% 120% at 15% 0%,
+      var(--accent-14),
+      transparent 62%
+    ),
+    var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 22px 20px;
+}
+
+.balance-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+}
+
+.balance-amount {
+  font-size: 38px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.balance-amount .unit {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-left: 8px;
+  letter-spacing: 0.5px;
+}
+
+.balance-sub {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--text-dim);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+/* Secondary fiat value under the RXD figure. RXD is worth fractions of a cent,
+   so this is deliberately quieter than the balance itself. */
+.balance-fiat {
+  margin-top: 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.balance-fiat-note {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* ---------------- buttons ---------------- */
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--btn-bg);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 13px 18px;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  width: 100%;
+  transition: transform 0.06s, opacity 0.15s, background 0.15s,
+    border-color 0.15s;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 650;
+}
+
+.btn.primary:active:not(:disabled) {
+  background: var(--accent-dark);
+  border-color: var(--accent-dark);
+}
+
+.btn.ghost {
+  background: transparent;
+}
+
+.btn.danger {
+  color: var(--danger);
+  border-color: var(--danger-35);
+  background: var(--danger-07);
+}
+
+.btn.small {
+  width: auto;
+  padding: 9px 14px;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+}
+
+.btn-row {
+  display: flex;
+  gap: 12px;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 10px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.action span.glyph {
+  font-size: 20px;
+  color: var(--accent);
+}
+
+/* ---------------- forms ---------------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.field label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+  color: var(--text-faint);
+  font-weight: 600;
+}
+
+input,
+textarea,
+select {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  font-size: 16px; /* prevents mobile zoom-on-focus */
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+input:focus,
+textarea:focus {
+  border-color: var(--accent-dark);
+}
+
+input.mono,
+textarea.mono {
+  font-family: var(--mono);
+  font-size: 14px;
+  letter-spacing: 0.4px;
+}
+
+textarea {
+  resize: none;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--text-faint);
+  line-height: 1.4;
+}
+
+.error {
+  font-size: 13px;
+  color: var(--danger);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.notice {
+  font-size: 13px;
+  color: var(--accent);
+  background: var(--accent-08);
+  border: 1px solid var(--accent-25);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  line-height: 1.45;
+}
+
+.success-box {
+  font-size: 13px;
+  color: var(--success);
+  background: var(--success-08);
+  border: 1px solid var(--success-30);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+}
+
+/* ---------------- seed words ---------------- */
+
+.seed-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.seed-word {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 9px 8px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  overflow: hidden;
+}
+
+.seed-word i {
+  color: var(--text-faint);
+  font-style: normal;
+  font-size: 10px;
+  min-width: 14px;
+}
+
+/* ---------------- rows / lists ---------------- */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+/* A row that opens an external link (block explorer). */
+button.row-button {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 13px 0;
+}
+
+button.row-button:active {
+  background: var(--bg-elev);
+}
+
+.row-chevron {
+  flex: 0 0 auto;
+  padding-left: 8px;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+.row .grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.row .title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.row .sub {
+  font-size: 12px;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row .value {
+  font-family: var(--mono);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.section-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-faint);
+  font-weight: 700;
+  margin: 4px 0 -6px 2px;
+}
+
+/* ---------------- misc ---------------- */
+
+.qr-wrap {
+  background: #fff;
+  padding: 12px;
+  border-radius: var(--radius);
+  display: grid;
+  place-items: center;
+}
+
+.qr-wrap img {
+  width: 100%;
+  max-width: 260px;
+  height: auto;
+  display: block;
+  image-rendering: pixelated;
+}
+
+.address-box {
+  font-family: var(--mono);
+  font-size: 13.5px;
+  line-height: 1.6;
+  word-break: break-all;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  text-align: center;
+  letter-spacing: 0.4px;
+}
+
+.center {
+  text-align: center;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  border: 1px solid var(--line);
+}
+
+.pill.live {
+  color: var(--success);
+  border-color: var(--success-35);
+  background: var(--success-08);
+}
+
+.pill.warn {
+  color: var(--accent);
+  border-color: var(--accent-35);
+  background: var(--accent-08);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.spin {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2.5px solid var(--line);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.splash {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  text-align: center;
+}
+
+.splash .brand-mark {
+  width: 56px;
+  height: 56px;
+}
+
+.danger-zone {
+  border: 1px solid var(--danger-30);
+  border-radius: var(--radius);
+  padding: 16px;
+  background: var(--danger-05);
+}
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 50;
+  padding: 16px;
+}
+
+.sheet {
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 85vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.hr {
+  height: 1px;
+  background: var(--line);
+  border: none;
+  margin: 2px 0;
+}
+
+/* ============================================================
+   Extension popup sizing
+
+   The Android build filled a WebView viewport. A popup instead sizes the browser
+   window from the document, and Chrome caps that at 800x600 - so declare the
+   window explicitly here. The height is fixed rather than min-height: a
+   content-driven height would let a long transaction list push the popup to the
+   cap and then scroll the entire document, header included, instead of just the
+   list.
+   ============================================================ */
+html,
+body {
+  width: 400px;
+  height: 600px;
+  overflow: hidden;
+}
+
+/* Where the startup watchdog (src/boot-guard.ts) renders when nothing mounted. */
+.boot-error {
+  margin: 0;
+  padding: 16px;
+  height: 100%;
+  overflow: auto;
+  font: 12px/1.5 ui-monospace, Consolas, monospace;
+  color: var(--danger);
+  white-space: pre-wrap;
+}
