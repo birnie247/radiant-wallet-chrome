@@ -97,6 +97,16 @@ export default function Home({ nav }: { nav: Nav }) {
           </div>
         )}
 
+        {nav.spv && (
+          <div className="hint">
+            {nav.spv.ok
+              ? `Headers verified from this build's checkpoint to ${nav.spv.tip}${
+                  nav.spv.checked > 0 ? ` (${nav.spv.checked} checked)` : ""
+                } — confirmed transactions are proven against it, not trusted from the server.`
+              : `Could not verify the chain: ${nav.spv.reason}. Balances are shown as the server reports them, unproven.`}
+          </div>
+        )}
+
         <div className="card">
           <div className="row" style={{ paddingTop: 0 }}>
             <div className="grow">

@@ -94,6 +94,48 @@ Three that cost real time, recorded so they aren't rediscovered:
    `--enable-unsafe-extension-debugging`. The old flag silently loads nothing and
    every `chrome-extension://` URL comes back blocked.
 
+## SPV: proving transactions instead of trusting the server
+
+`src/lib/spv.ts` removes "believe the Electrum server" from the wallet:
+
+1. **Header proof of work** — every block hash must meet the target its own `bits`
+   encodes.
+2. **Chain linkage from a pinned checkpoint** — `CHECKPOINT` names one block (hash
+   and height) this build trusts; the server's header at that height is re-hashed
+   and compared before anything else is believed, then every header up to the tip
+   must name its predecessor.
+3. **Merkle inclusion** — each confirmed transaction's branch is folded and
+   compared with that block's merkle root.
+4. **Transaction binding** — the transaction id must equal the hash of the body the
+   server returned, so a substituted transaction cannot ride an older proof.
+
+Three constants were measured against mainnet rather than assumed, and each would
+have produced a verifier that silently never fails if guessed:
+
+| Fact | Reality |
+| --- | --- |
+| Block hash / proof of work | double **SHA-512/256** — double SHA-256 does *not* satisfy the target |
+| Transaction id | double **SHA-256** |
+| Merkle tree | double **SHA-256**, a different hash from proof of work |
+
+Results are visible in the UI: proven rows carry a **✓ proven** badge, and Home
+states how far the chain was verified, or why it was not.
+
+**What this does not do.** Radiant retargets difficulty on *every* block (398 of 400
+consecutive mainnet headers carry a different `bits`), so checking the adjustment
+rule needs the consensus formula, which this build does not implement. Instead each
+header's target must stay within `MAX_TARGET_FACTOR` (2×) of the checkpoint's. That
+bounds the damage — forging blocks from the checkpoint still costs at least half the
+real work over that span, which at Radiant's difficulty nobody can do — but it is a
+bound, not a proof. The trade-off runs the other way too: a genuine hash-rate
+collapse could make the wallet refuse to sync until a new checkpoint ships. That is
+a loud, recoverable failure rather than a silent one, and it is why the checkpoint
+sits near the tip.
+
+Updating the checkpoint is a one-line change in `spv.ts`; the test suite prints the
+live tip so picking a new one is a copy-and-paste.
+
+
 ## Architecture
 
 ```
@@ -113,6 +155,7 @@ src/
     price.ts            RXD/USD, cached, opt-out
     openTab.ts          allowlisted explorer links via chrome.tabs
     reauth.ts           per-payment passphrase confirmation
+    spv.ts              header PoW, chain linkage, merkle inclusion
   screens/              Onboarding, Unlock, Home, Receive, Send, Settings
 public/
   manifest.json         MV3 manifest
@@ -130,7 +173,7 @@ would be one more way for the extension to fail at startup.
 
 ```bash
 npm run typecheck
-npm run check:browser     # crypto, signing, history, session policy, price, updates
+npm run check:browser     # crypto, signing, history, session, price, updates, SPV
 npm run check:csp         # the built bundle under an MV3 CSP, wallet creation included
 npm run check:extension   # installs in Chrome, creates a wallet, reloads the popup
 npm run check             # all of the above, in order
@@ -154,10 +197,15 @@ assertion that compared the viewport to itself.
    open, so balances refresh on open and then by push/poll while you watch. An MV3
    service worker is terminated when idle and cannot hold a socket. Fixing that
    properly needs an offscreen document, and it is the obvious next step.
-2. **Broadcast has never been exercised with real funds** — same caveat as the
-   Android build. Everything up to a valid signature is verified.
-3. **No SPV.** Balances, history and confirmations come from one ElectrumX server.
-   It cannot steal — it never sees a key — but it can lie about state.
+2. **Broadcast is proven only by one real send.** The first funded transaction was
+   sent from the Android build by the project owner and broadcast successfully;
+   everything up to a valid signature is verified in the test suite here too. That is
+   real evidence, but one send is not a track record — start small.
+3. **SPV is bounded, not complete.** Headers, chain linkage and merkle proofs are
+   verified (see [SPV](#spv-proving-transactions-instead-of-trusting-the-server)),
+   but the difficulty-adjustment rule is not, so the guarantee is "an attacker needs
+   real work" rather than "an attacker cannot". Blocks older than the pinned
+   checkpoint are unverified.
 4. **No dApp provider.** Nothing is injected into pages; this is a wallet you open,
    not one websites can talk to.
 5. **`chrome.storage.local` is not encrypted by the browser.** It is protected by the

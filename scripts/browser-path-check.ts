@@ -826,6 +826,144 @@ if (process.argv.includes("--live")) {
   );
 }
 
+// 15. SPV: header proof of work, chain linkage and merkle inclusion.
+//     Fixtures below are real mainnet data, captured with scripts/_spv-probe.mjs.
+//     The hash choices are the point: Radiant hashes blocks with SHA-512/256 but
+//     transaction ids and merkle nodes with SHA-256, so a Bitcoin-shaped verifier
+//     rejects every real header while a SHA-512-shaped one accepts forged merkle
+//     proofs. Both directions are asserted.
+{
+  const spv = await import("../src/lib/spv");
+
+  const HEADER_479445 =
+    "00000020b6c93e7d8b2aa02876111150c9655762229147b5b0b069013301000000000000" +
+    "b032a62207f2cf563300c798a22bacc1d167093ce277afcfae9722ea88b811426a04ee6a" +
+    "6076011a2167b6ee";
+  const MERKLE_479445 =
+    "4211b888ea2297aecfaf77e23c0967d1c1ac2ba298c7003356cff20722a632b0";
+  const TXID = "84066739235c82f2f79dbf5e0471e1c1406cbada54e75c6b998ed267acf1f1e7";
+  const BRANCH = [
+    "66ca055ba5b581bd853f9398672ba2435198067e5d6a1c6855c12ca38a43a9a4",
+    "ed45f0c076217cd82b792493388181735ed92e82d45e0e1680c1f2a994b9ed94",
+    "fa812148a84ede6b5b94c8731c6899076abe591e4edead88c2880e1d0c49fe18",
+    "efc53d9e0714e2088c17d988dfd7fedd423edb04c7af47478c434d80b6899911",
+    "8946f954716bb2a9953af537312768547f739e8a11743d587c60f8219e907190",
+    "4d14f3f48aeb6dd8fb18fb98e77a48ef8c1b57b9dcd1c574fa8d1975b13085da",
+  ];
+
+  const header = spv.parseHeader(HEADER_479445, 479445);
+  check(
+    "header hashes with SHA-512/256d",
+    header.hash === "00000000000000f453716d93ed7880cad423b32446885813fceee3422dcb4cd5",
+    header.hash,
+  );
+  check("header prev/parent decoded", header.prev === "00000000000001330169b0b0b5479122625765c95011117628a02a8b7d3ec9b6");
+  check("header merkle root decoded", header.merkleRoot === MERKLE_479445);
+  check("header bits decoded", header.bits === 0x1a017660, "0x" + header.bits.toString(16));
+  check("real header meets its target", header.meetsTarget);
+
+  // Flipping one nonce byte must break the proof — otherwise the check is vacuous.
+  const tampered =
+    HEADER_479445.slice(0, 152) +
+    (HEADER_479445.slice(152, 154) === "00" ? "01" : "00") +
+    HEADER_479445.slice(154);
+  check(
+    "a tampered header fails proof of work",
+    spv.parseHeader(tampered, 479445).meetsTarget === false,
+  );
+
+  check(
+    "target expands the compact bits field",
+    spv.targetFromBits(0x1a017660) === 0x017660n * 2n ** 184n,
+  );
+
+  const root = await spv.merkleRootFromProof(TXID, BRANCH, 0);
+  check("merkle proof reproduces the header root", root === MERKLE_479445, root.slice(0, 24) + "…");
+
+  const corrupted = [...BRANCH];
+  corrupted[3] = corrupted[3].replace(/^./, (c) => (c === "0" ? "1" : "0"));
+  check(
+    "a corrupted merkle branch is rejected",
+    (await spv.merkleRootFromProof(TXID, corrupted, 0)) !== MERKLE_479445,
+  );
+}
+
+// 16. SPV against the live chain.
+{
+  const spv = await import("../src/lib/spv");
+  const walletLib = await import("../src/lib/wallet");
+
+  let chainOk = false;
+  try {
+    const { client } = await walletLib.connect("mainnet");
+    try {
+      const chain = await spv.syncChain(client);
+      chainOk = chain.ok;
+      check(
+        "connects and verifies headers from the pinned checkpoint",
+        chain.ok,
+        chain.ok ? `${chain.checked} header(s), tip ${chain.tip}` : chain.reason,
+      );
+      if (chain.ok) {
+        check(
+          "verified tip matches the server's tip",
+          chain.tip === (await client.request<{ height: number }>("blockchain.headers.subscribe")).height,
+          String(chain.tip),
+        );
+      }
+    } finally {
+      try {
+        client.close();
+      } catch {
+        /* ignore */
+      }
+    }
+  } catch (e) {
+    check("connects and verifies headers from the pinned checkpoint", false, (e as Error).message);
+  }
+
+  if (chainOk) {
+    // One more connection for the merkle and txid checks (state is cheap, sockets
+    // are not: the previous one is closed by now).
+    const { client } = await walletLib.connect("mainnet");
+    try {
+      const chain = await spv.syncChain(client);
+      const txid = await client.request<string>(
+        "blockchain.transaction.id_from_pos",
+        chain.tip,
+        0,
+        false,
+      );
+
+      const proof = await spv.verifyTransaction(client, txid, chain.tip, chain.merkleRoots);
+      check("live transaction inclusion proof verifies", proof.verified, proof.reason || txid.slice(0, 16) + "…");
+
+      const bogus = cand_txid(txid);
+      const badProof = await spv.verifyTransaction(client, bogus, chain.tip, chain.merkleRoots);
+      check("a wrong transaction id fails its proof", badProof.verified === false);
+
+      const raw = await client.request<string>("blockchain.transaction.get", txid, false);
+      check("txid is the double-SHA-256 of the body", await spv.verifyTxid(raw, txid));
+      check(
+        "a tampered body no longer matches its txid",
+        (await spv.verifyTxid(raw.replace(/^../, "ff"), txid)) === false,
+      );
+    } finally {
+      try {
+        client.close();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  // A digest that is definitely not a transaction in that block.
+  function cand_txid(txid: string): string {
+    return (txid[0] === "0" ? "1" : "0") + txid.slice(1);
+  }
+}
+
+
 console.log(`\n${failures === 0 ? "ALL BROWSER-PATH CHECKS PASSED" : failures + " CHECK(S) FAILED"}`);
 process.exit(failures === 0 ? 0 : 1);
 

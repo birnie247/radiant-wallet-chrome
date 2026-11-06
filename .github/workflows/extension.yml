@@ -1,0 +1,54 @@
+name: Build and verify the extension
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Crypto, signing, history, session policy, price, live updates and SPV
+      # (header proof of work, chain linkage, merkle proofs) against mainnet.
+      - name: Browser crypto and wallet checks
+        run: npm run check:browser
+
+      - name: Build
+        run: npm run build
+
+      - name: Show the Chrome that will run the extension checks
+        run: google-chrome --version || chromium --version || echo "no system chrome"
+
+      # Proves the built bundle runs under an MV3 CSP (no unsafe-eval), which is
+      # what catches a dependency that generates code at runtime.
+      - name: CSP check
+        run: npm run check:csp
+
+      # Installs the extension in a real Chrome, creates a wallet and reloads the
+      # popup. Requires Chrome 137+ for the Extensions CDP domain.
+      - name: Extension load check
+        run: npm run check:extension
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+
+      - name: Upload the built extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: radiant-wallet-extension
+          path: dist
+          if-no-files-found: error

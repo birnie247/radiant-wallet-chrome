@@ -38,10 +38,15 @@ const CSP =
   "font-src 'self' data:; style-src 'self' 'unsafe-inline'";
 
 const CHROME_CANDIDATES = [
+  // CI sets this (Linux runners do not use the Windows paths below).
+  process.env.CHROME_PATH,
   "C:/Program Files/Google/Chrome/Application/chrome.exe",
   "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
   "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
-];
+  "/usr/bin/google-chrome",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+].filter(Boolean);
 
 const MIME = {
   ".html": "text/html; charset=utf-8",

@@ -25,9 +25,13 @@ const DEBUG_PORT = 9341;
 const PASSPHRASE = "extension test passphrase";
 
 const CHROME_CANDIDATES = [
+  // CI sets this; the Windows paths below are for local runs.
+  process.env.CHROME_PATH,
   "C:/Program Files/Google/Chrome/Application/chrome.exe",
   "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
-];
+  "/usr/bin/google-chrome",
+  "/usr/bin/chromium",
+].filter(Boolean);
 
 const chrome = CHROME_CANDIDATES.find((p) => existsSync(p));
 if (!chrome) {

@@ -41,6 +41,18 @@ export interface Nav {
    */
   unlockTimeoutMs: number;
   setUnlockTimeoutMs: (ms: number) => void;
+  /**
+   * Result of SPV header verification, or null before the first attempt.
+   * `ok: false` means the chain could not be verified and `reason` says why —
+   * the wallet stays usable, but nothing should claim to be proven.
+   */
+  spv: {
+    ok: boolean;
+    tip: number;
+    checked: number;
+    reason: string;
+  } | null;
+
   /** RXD/USD price, or null when unavailable or fiat display is off. */
   price: PriceResult | null;
   /** Whether fiat values are shown (opt-out; see price.ts). */

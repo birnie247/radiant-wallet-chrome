@@ -19,6 +19,11 @@ import {
   saveUnlockTimeoutMs,
 } from "./lib/session";
 import type { Screen, Session } from "./types";
+import {
+  syncChain,
+  verifyTransaction,
+  type ChainResult,
+} from "./lib/spv";
 import BrandMark from "./components/BrandMark";
 import Onboarding from "./screens/Onboarding";
 import Unlock from "./screens/Unlock";
@@ -36,6 +41,11 @@ export default function App() {
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   const [historyTotal, setHistoryTotal] = useState(0);
   const [tipDrift, setTipDrift] = useState<number | null>(null);
+  /**
+   * Result of verifying the header chain (see src/lib/spv.ts). Null until the
+   * first attempt finishes; `ok` false carries the reason.
+   */
+  const [spv, setSpv] = useState<ChainResult | null>(null);
 
   /**
    * How long an unlock survives the popup being closed. See src/lib/session.ts —
@@ -77,8 +87,81 @@ export default function App() {
   // stored session carries only the secret, so restoring it still has to
   // reconnect and rescan.
 
+  /** When the chain was last verified, so the 60 s poll does not redo it. */
+  const lastSpvAtRef = useRef(0);
+
   /**
-   * Load confirmation-annotated history in the background.
+   * SPV: verify the header chain from the pinned checkpoint, then prove that each
+   * confirmed transaction we are displaying really sits in one of those blocks.
+   *
+   * Runs in the background and never blocks spending. A failed proof is recorded
+   * rather than thrown: the wallet stays usable, but the row stops claiming to be
+   * verified, which is the honest outcome if a server is lying.
+   */
+  const verifySpv = useCallback(
+    async (next: Session, entries: HistoryEntry[]) => {
+      // The backstop poll reloads history every minute; re-proving the same
+      // headers that often is wasted work. Five minutes still covers new
+      // confirmations without hammering the server.
+      if (Date.now() - lastSpvAtRef.current < 5 * 60_000) return;
+
+      let chain: ChainResult;
+      try {
+        chain = await syncChain(next.client);
+      } catch (e) {
+        setSpv({
+          ok: false,
+          tip: 0,
+          tipHash: "",
+          checked: 0,
+          reason: (e as Error).message || "header verification failed",
+          merkleRoots: new Map(),
+        });
+        return;
+      }
+      setSpv(chain);
+      if (!chain.ok) return;
+      lastSpvAtRef.current = Date.now();
+
+      // Each proof costs a round trip, so bound the work: the newest few
+      // confirmed rows are what a user actually looks at.
+      const confirmed = entries.filter((entry) => entry.height > 0).slice(0, 8);
+      if (confirmed.length === 0) return;
+
+      const proofs = await Promise.all(
+        confirmed.map(async (entry) => {
+          try {
+            const proof = await verifyTransaction(
+              next.client,
+              entry.txid,
+              entry.height,
+              chain.merkleRoots,
+            );
+            return [entry.txid, proof] as const;
+          } catch {
+            return [
+              entry.txid,
+              { verified: false, reason: "proof request failed", height: entry.height },
+            ] as const;
+          }
+        }),
+      );
+      const byTxid = new Map(proofs);
+      setHistory((current) =>
+        (current ?? []).map((entry) => {
+          const proof = byTxid.get(entry.txid);
+          return proof
+            ? { ...entry, verified: proof.verified, verifyNote: proof.reason || undefined }
+            : entry;
+        }),
+      );
+    },
+    [lastSpvAtRef],
+  );
+
+  /**
+   * Load confirmation-annotated history in the background, then verify it.
+   *
    * Deliberately non-blocking: the wallet is usable before this resolves, and a
    * server that refuses to serve history must not stop the user spending.
    */
@@ -98,11 +181,14 @@ export default function App() {
       if (other) {
         setTipDrift(Math.abs(result.tipHeight - other.height));
       }
+
+      // SPV, with the entries just loaded (passing them in avoids racing state).
+      await verifySpv(next, result.entries);
     } catch {
       setHistory([]);
       setHistoryTotal(0);
     }
-  }, []);
+  }, [verifySpv]);
 
   /** One scan at a time; push notifications arrive in bursts. */
   const scanningRef = useRef(false);
@@ -357,6 +443,9 @@ export default function App() {
     tipDrift,
     unlockTimeoutMs,
     setUnlockTimeoutMs,
+    spv: spv
+      ? { ok: spv.ok, tip: spv.tip, checked: spv.checked, reason: spv.reason }
+      : null,
     price,
     fiatEnabled,
     setFiatEnabled,

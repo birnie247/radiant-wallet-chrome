@@ -85,6 +85,16 @@ function ActivityRow({ entry }: { entry: HistoryEntry }) {
             {entry.confirmations === 0 && <span className="dot" />}
             {badge.label}
           </span>
+          {/* SPV: the merkle proof tied this transaction to a verified header. */}
+          {entry.verified === true && (
+            <span
+              className="pill"
+              style={{ fontSize: 10, marginLeft: 4 }}
+              title="Merkle proof verified against a header chain checked back to this build's checkpoint"
+            >
+              ✓ proven
+            </span>
+          )}
         </div>
       </div>
     </>
