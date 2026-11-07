@@ -123,7 +123,10 @@ body {
 .app {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
+  /* Exactly the viewport, never taller: the shell is a fixed 600px window and
+     `.content` does the scrolling. With `min-height` the shell grew to the full
+     height of the activity list and the excess was clipped by the body. */
+  height: 100%;
   max-width: 520px;
   margin: 0 auto;
   padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px
@@ -219,12 +222,51 @@ body {
   border-color: var(--accent-dark);
 }
 
+/*
+ * The list area is the only part of the popup that may overflow, so it is the
+ * part that scrolls. Both declarations below are load-bearing:
+ *   • `min-height: 0` — a flex child refuses to shrink below its content height
+ *     by default, so without this `.content` stays as tall as the whole activity
+ *     list and nothing inside it can overflow.
+ *   • `overflow-y: auto` — `body { overflow: hidden }` (see the popup sizing
+ *     block at the bottom of this file) otherwise clips the overflow away
+ *     instead of exposing it. That is what cut off recent activity and hid
+ *     "Funds by address" entirely.
+ */
 .content {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: var(--gap);
   padding-bottom: 8px;
+  /* Thin, tinted scrollbar: visible enough to show there is more below,
+     quiet enough not to shout on a 400px-wide surface. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+/* Chromium supports `scrollbar-width` from 121; older builds fall through to
+   these, which give the same hairline look. */
+.content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.content::-webkit-scrollbar-thumb {
+  background-color: var(--line);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background-clip: content-box;
+}
+
+.content::-webkit-scrollbar-thumb:hover {
+  background-color: var(--bg-elev-3);
 }
 
 /* ---------------- cards ---------------- */
@@ -730,12 +772,26 @@ button.row-button:active {
    window explicitly here. The height is fixed rather than min-height: a
    content-driven height would let a long transaction list push the popup to the
    cap and then scroll the entire document, header included, instead of just the
-   list.
+   list. `.content` is that scroll container (see the app shell section above);
+   the header stays put while the list moves under it.
    ============================================================ */
-html,
-body {
+html {
+  /* Explicit window for the popup: Chrome sizes the window from the document
+     and caps that at 800x600. */
   width: 400px;
   height: 600px;
+  /* Vertical overflow stays reachable. `overflow: hidden` here (with the same on
+     body) is what made everything below the fold unreachable whenever the popup
+     was given less height than it asked for — a small browser window, or a page
+     zoom that shrinks the available viewport. In the normal case the shell is
+     exactly 600px tall and this scrolls nothing. */
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+body {
+  width: 400px;
+  height: 100%;
   overflow: hidden;
 }
 
