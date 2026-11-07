@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Radiant Wallet",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Non-custodial Radiant (RXD) wallet. Keys are generated, encrypted and used to sign entirely in your browser.",
   "minimum_chrome_version": "116",
   "icons": {
@@ -24,5 +24,8 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "permissions": ["storage", "offscreen"]
+  "permissions": [
+    "storage",
+    "offscreen"
+  ]
 }
