@@ -9,7 +9,10 @@ export default function Home({ nav }: { nav: Nav }) {
   const { session } = nav;
   const { scan, secrets, endpoint } = session;
 
-  const usedAddresses = scan.addresses.filter((a) => a.used).slice(0, 6);
+  // Count every used address, not a display-sized slice: the row is a fact
+  // about the wallet, and capping it at 6 silently under-reported once the
+  // wallet had more derivation indices in play than that.
+  const usedAddressCount = scan.addresses.filter((a) => a.used).length;
 
   // Compose per-address totals from the UTXO set we already hold.
   const perAddress = new Map<string, bigint>();
@@ -130,8 +133,8 @@ export default function Home({ nav }: { nav: Nav }) {
               </div>
             </div>
             <div className="value">
-              {usedAddresses.length} address
-              {usedAddresses.length === 1 ? "" : "es"}
+              {usedAddressCount} address
+              {usedAddressCount === 1 ? "" : "es"}
             </div>
           </div>
         </div>
