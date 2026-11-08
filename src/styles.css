@@ -606,6 +606,47 @@ button.row-button:active {
   white-space: nowrap;
 }
 
+/* ---------------- ElectrumX server rows ----------------
+   A `host:port` has no spaces, so it cannot wrap on its own: inside a 400px
+   popup a long address simply overflowed its flex item and ran under the Use /
+   Remove buttons. The address now gets its own line and is allowed to break
+   anywhere (Android does the same), and the actions stack into a column so the
+   address has room without the buttons shrinking to unreadable. */
+.server-row {
+  align-items: flex-start;
+  /* Two buttons stacked at the right make a tall row; trim its padding so three
+     servers do not fill the whole screen. */
+  padding: 11px 0;
+}
+
+.server-url {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.server-meta {
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.server-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 0 0 auto;
+}
+
+.server-actions .btn.small {
+  padding: 6px 10px;
+  font-size: 12px;
+  min-width: 62px;
+}
+
 .section-title {
   font-size: 12px;
   text-transform: uppercase;

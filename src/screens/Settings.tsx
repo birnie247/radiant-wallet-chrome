@@ -203,19 +203,18 @@ export default function Settings({ nav }: { nav: Nav }) {
             const active = canonicalServerUrl(server.url) === activeServer;
             const busyRow = !!switching || !!nav.busy;
             return (
-              <div className="row" key={server.url}>
+              <div className="row server-row" key={server.url}>
                 <div className="grow">
-                  <div className="title">{displayName(server.url)}</div>
-                  <div className="sub">
+                  <div className="server-url" title={server.url}>
+                    {displayName(server.url)}
+                  </div>
+                  <div className="server-meta">
                     {server.custom ? "added by you" : "built in"} ·{" "}
                     {server.verified ? "verified" : "unverified"}
                     {switching === server.url ? " · connecting…" : ""}
                   </div>
                 </div>
-                <div
-                  style={{ display: "flex", gap: 8, flex: "0 0 auto" }}
-                  onClick={(e) => e.stopPropagation()}
-                >
+                <div className="server-actions">
                   <button
                     className={`btn small ${active ? "primary" : ""}`}
                     disabled={active || busyRow}
