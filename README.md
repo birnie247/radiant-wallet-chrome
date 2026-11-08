@@ -65,6 +65,12 @@ Sending still requires the passphrase **every time**, and the secret that comes 
 must belong to the wallet on screen — that check survives from the Android build
 (`src/lib/reauth.ts`).
 
+**Kept in step with the Android build:** the curated endpoint list, the SPV proof
+summary (`describeProofs`) and the user-managed server list are ported from
+Android 1.0.12 / 1.0.13 with the same storage keys and the same tests
+(`scripts/browser-path-check.ts`), so the two clients cannot drift apart silently.
+Where they differ is only what a browser has no equivalent for — the table above.
+
 ## Security model
 
 **What protects the seed**
@@ -193,7 +199,7 @@ src/
     wallet.ts           connect, BIP44 scan, UTXO fetch, build/broadcast
     history.ts          net effect and confirmation counts
     liveUpdates.ts      scripthash push subscriptions
-    servers.ts          endpoint list and connect budgets
+    servers.ts          curated endpoints, user-added servers, connect budgets
     price.ts            RXD/USD, cached, opt-out
     openTab.ts          allowlisted explorer links via chrome.tabs
     reauth.ts           per-payment passphrase confirmation

@@ -59,6 +59,13 @@ export interface Nav {
     checked: number;
     reason: string;
   } | null;
+  /**
+   * How many of the displayed transactions SPV actually checked, and how many
+   * proved. `checked` can be smaller than the number of confirmed rows (the work
+   * is bounded), and `proven < checked` means at least one proof failed - which is
+   * a warning, not a rounding artefact.
+   */
+  spvProofs: { checked: number; proven: number } | null;
 
   /** RXD/USD price, or null when unavailable or fiat display is off. */
   price: PriceResult | null;

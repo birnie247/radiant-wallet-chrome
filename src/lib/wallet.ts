@@ -118,6 +118,12 @@ export interface Connection {
   verified: boolean;
   /** Administrator grouping, used for independent cross-checks. */
   operator: string;
+  /**
+   * Raw `server.version` reply from the endpoint that answered (ElectrumX sends
+   * `[banner, protocol]`). Carried here so Settings can show *what* responded
+   * without a second round trip - ElectrumX rejects a repeat handshake.
+   */
+  serverVersion?: unknown;
 }
 
 /**
@@ -209,8 +215,8 @@ export async function connect(
         Math.min(connectTimeoutMs, remaining),
         "connect",
       );
-      await withTimeout(
-        client.serverVersion("rxd-android-wallet", "1.4"),
+      const version = await withTimeout(
+        client.serverVersion("rxd-chrome-wallet", "1.4"),
         Math.min(handshakeTimeoutMs, remaining),
         "handshake",
       );
@@ -220,6 +226,7 @@ export async function connect(
         endpoint: url,
         verified: entry?.verified ?? false,
         operator: entry?.operator ?? "unknown",
+        serverVersion: version,
       };
     } catch (err) {
       try {

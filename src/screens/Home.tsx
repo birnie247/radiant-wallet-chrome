@@ -1,6 +1,7 @@
 import { formatRxd, shortId } from "../lib/money";
 import { formatUsdBalance } from "../lib/price";
 import { MAX_TIP_DRIFT } from "../lib/wallet";
+import { describeProofs } from "../lib/spv";
 import ActivityList from "../components/ActivityList";
 import BrandMark from "../components/BrandMark";
 import type { Nav } from "../types";
@@ -13,6 +14,12 @@ export default function Home({ nav }: { nav: Nav }) {
   // about the wallet, and capping it at 6 silently under-reported once the
   // wallet had more derivation indices in play than that.
   const usedAddressCount = scan.addresses.filter((a) => a.used).length;
+
+  // SPV summary. The wording lives in spv.ts so it can be tested: it must not
+  // confuse "nothing confirmed yet" with "not checked" or with a failed proof.
+  const confirmedCount = (nav.history ?? []).filter((e) => e.height > 0).length;
+  const proofsFailed =
+    nav.spvProofs !== null && nav.spvProofs.proven < nav.spvProofs.checked;
 
   // Compose per-address totals from the UTXO set we already hold.
   const perAddress = new Map<string, bigint>();
@@ -101,11 +108,12 @@ export default function Home({ nav }: { nav: Nav }) {
         )}
 
         {nav.spv && (
-          <div className="hint">
+          <div className={proofsFailed ? "error" : "hint"}>
             {nav.spv.ok
-              ? `Headers verified from this build's checkpoint to ${nav.spv.tip}${
-                  nav.spv.checked > 0 ? ` (${nav.spv.checked} checked)` : ""
-                } — confirmed transactions are proven against it, not trusted from the server.`
+              ? `Chain verified to block ${nav.spv.tip} — ${describeProofs(
+                  nav.spvProofs,
+                  confirmedCount,
+                )}.`
               : `Could not verify the chain: ${nav.spv.reason}. Balances are shown as the server reports them, unproven.`}
           </div>
         )}

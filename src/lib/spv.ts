@@ -438,3 +438,29 @@ export async function verifyTxid(rawTxHex: string, txid: string): Promise<boolea
   const computed = toHex(reversed(await sha256d(toBytes(rawTxHex))));
   return computed === txid.trim().toLowerCase();
 }
+
+/**
+ * One-line summary of how many transactions were proven.
+ *
+ * Lives here, next to the verification it describes, so it can be tested: the
+ * wording has to distinguish "nothing to prove yet" from "not checked" from "a
+ * proof failed", and getting that wrong would either overstate or alarm.
+ *
+ * `checked` is what SPV actually attempted (bounded work), `confirmedCount` is how
+ * many confirmed rows the wallet is showing.
+ */
+export function describeProofs(
+  proofs: { checked: number; proven: number } | null,
+  confirmedCount: number,
+): string {
+  if (!proofs) return "transactions not proven yet";
+  if (proofs.checked === 0) {
+    return confirmedCount === 0
+      ? "nothing confirmed to prove yet"
+      : "transactions not proven yet";
+  }
+  const noun = proofs.checked === 1 ? "transaction" : "transactions";
+  const bounded =
+    confirmedCount > proofs.checked ? ` (newest ${proofs.checked} checked)` : "";
+  return `${proofs.proven} of ${proofs.checked} confirmed ${noun} proven${bounded}`;
+}

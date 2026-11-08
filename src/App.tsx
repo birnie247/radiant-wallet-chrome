@@ -54,6 +54,16 @@ export default function App() {
    */
   const [spv, setSpv] = useState<ChainResult | null>(null);
 
+  /**
+   * How many of the displayed transactions SPV actually checked and proved. Kept
+   * separate from `spv` because "the chain verified" and "your transactions are
+   * proven" are different claims, and the Home screen must not blur them.
+   */
+  const [spvProofs, setSpvProofs] = useState<{
+    checked: number;
+    proven: number;
+  } | null>(null);
+
   /** Background watching (offscreen document) is on unless the user opts out. */
   const [watchEnabled, setWatchEnabledState] = useState<boolean>(loadWatchEnabled);
 
@@ -159,16 +169,23 @@ export default function App() {
           reason: (e as Error).message || "header verification failed",
           merkleRoots: new Map(),
         });
+        setSpvProofs(null);
         return;
       }
       setSpv(chain);
-      if (!chain.ok) return;
+      if (!chain.ok) {
+        setSpvProofs(null);
+        return;
+      }
       lastSpvAtRef.current = Date.now();
 
       // Each proof costs a round trip, so bound the work: the newest few
       // confirmed rows are what a user actually looks at.
       const confirmed = entries.filter((entry) => entry.height > 0).slice(0, 8);
-      if (confirmed.length === 0) return;
+      if (confirmed.length === 0) {
+        setSpvProofs({ checked: 0, proven: 0 });
+        return;
+      }
 
       const proofs = await Promise.all(
         confirmed.map(async (entry) => {
@@ -189,6 +206,12 @@ export default function App() {
         }),
       );
       const byTxid = new Map(proofs);
+      // Record what was actually checked: `checked` is the number of proofs
+      // attempted, not the number of confirmed rows, so the UI cannot overstate.
+      setSpvProofs({
+        checked: proofs.length,
+        proven: proofs.filter(([, proof]) => proof.verified).length,
+      });
       setHistory((current) =>
         (current ?? []).map((entry) => {
           const proof = byTxid.get(entry.txid);
@@ -495,6 +518,7 @@ export default function App() {
     spv: spv
       ? { ok: spv.ok, tip: spv.tip, checked: spv.checked, reason: spv.reason }
       : null,
+    spvProofs,
     price,
     fiatEnabled,
     setFiatEnabled,

@@ -563,10 +563,29 @@ if (process.argv.includes("--live")) {
     auto.length === verified.length && auto.every((u) => verified.includes(u)),
     `${auto.length} endpoint(s): ${auto.map((u) => u.replace("wss://", "")).join(", ")}`,
   );
+  // The curated list was synced to the Android build (1.0.13): every listed host
+  // now answers, so there is no "dead but selectable" tier left. What matters is
+  // that nothing listed is un-provable and that quorum still has two operators.
+  const hostOf = (url: string) => url.replace(/^wss:\/\//, "").split(":")[0];
   check(
-    "the dead hosts are still listed for manual selection",
-    servers.SERVERS.mainnet.length > verified.length,
-    `${servers.SERVERS.mainnet.length} known, ${verified.length} auto`,
+    "every endpoint is wss:// on a hostname, never a bare IP",
+    servers.SERVERS.mainnet.every(
+      (s) =>
+        s.url.startsWith("wss://") &&
+        !/^\d{1,3}(\.\d{1,3}){3}$/.test(hostOf(s.url)),
+    ),
+    servers.SERVERS.mainnet.map((s) => hostOf(s.url)).join(", "),
+  );
+
+  // The tip cross-check only proves anything across *distinct* operators, so a
+  // list that has collapsed to one administrator has quietly lost quorum.
+  const operators = new Set(servers.SERVERS.mainnet.map((s) => s.operator));
+  check(
+    "at least two distinct operators remain for the tip cross-check",
+    operators.size >= 2,
+    `${servers.SERVERS.mainnet.length} known, ${operators.size} operator(s): ${[
+      ...operators,
+    ].join(", ")}`,
   );
 
   // Unreachable endpoints must fail fast rather than hang.
@@ -1032,6 +1051,239 @@ if (process.argv.includes("--live")) {
 
 
 
+// 18. Server list management (Android 1.0.13) and the SPV proof summary
+//     (Android 1.0.12), ported with the same expectations so the two clients
+//     cannot drift apart silently. Storage here is chrome.storage's in-memory
+//     mirror - there is no chrome API under Node - so these are logic checks.
+{
+  const servers = await import("../src/lib/servers");
+  const spv = await import("../src/lib/spv");
+  const store = await import("../src/lib/storage");
+
+  const parsedUrl = (raw: string) => {
+    const result = servers.parseServerUrl(raw);
+    return "url" in result ? result.url : null;
+  };
+  const parseError = (raw: string) => {
+    const result = servers.parseServerUrl(raw);
+    return "error" in result ? result.error : "";
+  };
+
+  check(
+    "a bare host is assumed to be wss://",
+    parsedUrl("electrumx.example.org:50022") ===
+      "wss://electrumx.example.org:50022",
+    String(parsedUrl("electrumx.example.org:50022")),
+  );
+  check(
+    "case, padding and a trailing slash normalise away",
+    parsedUrl("  WSS://ElectrumX.Example.ORG:50022/  ") ===
+      "wss://electrumx.example.org:50022",
+  );
+  check(
+    "the wss default port normalises away, so duplicates still match",
+    parsedUrl("wss://electrumx.example.org:443") === "wss://electrumx.example.org",
+  );
+  check(
+    "bare ws:// is refused (an extension page blocks it as mixed content)",
+    parseError("ws://electrumx.example.org:50012").includes("wss://"),
+  );
+  check("http:// is refused", parseError("http://electrumx.example.org") !== "");
+  check("an empty field is refused", parseError("   ") !== "");
+  check(
+    "a path is refused",
+    parseError("wss://host.example.org:50022/electrum") !== "",
+  );
+  check(
+    "credentials are refused",
+    parseError("wss://user:pw@host.example.org:50022") !== "",
+  );
+  check(
+    "an out-of-range port is refused",
+    parseError("wss://host.example.org:70000") !== "",
+  );
+  check("junk is refused", parseError("wss://%%%") !== "");
+
+  const curated = servers.SERVERS.mainnet.map((s) => s.url);
+  const custom = "wss://electrumx.example.org:50022";
+  check(
+    "the curated list is the starting point",
+    servers.allServers("mainnet").length === curated.length,
+    `${servers.allServers("mainnet").length} listed`,
+  );
+
+  const added = servers.addCustomServer("mainnet", "electrumx.example.org:50022");
+  check(
+    "a user-added server is stored, normalised and marked custom",
+    added.url === custom && added.custom === true && added.verified === false,
+    added.url,
+  );
+  check(
+    "it is listed with its own operator",
+    servers.allServers("mainnet").length === curated.length + 1 &&
+      servers.findServer("mainnet", custom)?.operator === "electrumx.example.org",
+  );
+  check(
+    "auto-connect still tries curated verified endpoints first",
+    servers.autoCandidates("mainnet")[0] === curated[0] &&
+      servers.autoCandidates("mainnet").includes(custom),
+    servers
+      .autoCandidates("mainnet")
+      .map((u) => u.replace("wss://", ""))
+      .join(", "),
+  );
+
+  let duplicateRejected = false;
+  try {
+    servers.addCustomServer("mainnet", "WSS://ELECTRUMX.example.org:50022");
+  } catch {
+    duplicateRejected = true;
+  }
+  check("adding the same host again is refused", duplicateRejected);
+
+  let curatedDuplicateRejected = false;
+  try {
+    servers.addCustomServer("mainnet", curated[0]);
+  } catch {
+    curatedDuplicateRejected = true;
+  }
+  check("a curated endpoint cannot be added a second time", curatedDuplicateRejected);  servers.setCustomServerVerified("mainnet", custom, true);
+  check(
+    "a passed handshake is remembered",
+    servers.findServer("mainnet", custom)?.verified === true,
+  );
+
+  servers.removeServer("mainnet", custom);
+  check(
+    "removing a user-added server deletes it",
+    servers.allServers("mainnet").length === curated.length &&
+      servers.customServers("mainnet").length === 0,
+  );
+
+  servers.removeServer("mainnet", curated[2]);
+  check(
+    "removing a curated server only hides it",
+    servers.allServers("mainnet").length === curated.length - 1 &&
+      servers.hiddenServers("mainnet").length === 1 &&
+      !servers.autoCandidates("mainnet").includes(curated[2]),
+  );
+
+  // Re-adding a hidden curated endpoint as a user server is allowed, but the
+  // restored default must not leave an invisible duplicate behind.
+  servers.addCustomServer("mainnet", curated[2], { verified: true });
+  check(
+    "a hidden built-in can be re-added as a user server",
+    servers.allServers("mainnet").length === curated.length &&
+      servers.findServer("mainnet", curated[2])?.custom === true,
+  );
+
+  servers.restoreHiddenServers("mainnet");
+  check(
+    "built-in servers come back on restore",
+    servers.allServers("mainnet").length === curated.length &&
+      servers.hiddenServers("mainnet").length === 0,
+  );
+  check(
+    "restoring drops the shadowed duplicate instead of hiding it",
+    servers.customServers("mainnet").length === 0 &&
+      servers.findServer("mainnet", curated[2])?.custom === undefined,
+  );
+
+  servers.setPreferredServer(curated[0]);
+  servers.removeServer("mainnet", curated[0]);
+  check(
+    "removing the active server clears the preference",
+    servers.getPreferredServer() === null,
+  );
+  servers.restoreHiddenServers("mainnet");
+
+  // The last endpoint must survive: a wallet with no server can never connect.
+  servers.removeServer("mainnet", curated[1]);
+  servers.removeServer("mainnet", curated[2]);
+  let lastGuard = "";
+  try {
+    servers.removeServer("mainnet", curated[0]);
+  } catch (e) {
+    lastGuard = (e as Error).message;
+  }
+  check(
+    "the last remaining server cannot be removed",
+    lastGuard !== "" && servers.allServers("mainnet").length === 1,
+    lastGuard || "no error thrown",
+  );
+  servers.restoreHiddenServers("mainnet");  // Storage is not trusted: an injected ws:// entry must be dropped on read.
+  store.setItem(
+    "rxd.wallet.customServers.v1",
+    JSON.stringify({
+      mainnet: [
+        { url: "ws://evil.example.org:50012", verified: true },
+        { url: "wss://good.example.org:50022", verified: true },
+        "junk",
+        null,
+      ],
+    }),
+  );
+  const revalidated = servers.allServers("mainnet");
+  check(
+    "stored entries are re-validated on read",
+    revalidated.length === curated.length + 1 &&
+      revalidated.some((s) => s.url === "wss://good.example.org:50022") &&
+      !revalidated.some((s) => s.url.includes("evil")),
+    `${revalidated.length} listed`,
+  );
+  check(
+    "a re-validated entry keeps its measured verified flag",
+    servers.findServer("mainnet", "wss://good.example.org:50022")?.verified === true,
+  );
+
+  // The Home summary must not overstate or alarm: "0 checked" is the state most
+  // easily mis-worded, and a failed proof has to read as a shortfall.
+  check(
+    "summary: nothing checked yet",
+    spv.describeProofs(null, 3) === "transactions not proven yet",
+    spv.describeProofs(null, 3),
+  );
+  check(
+    "summary: no confirmed transactions",
+    spv.describeProofs({ checked: 0, proven: 0 }, 0) ===
+      "nothing confirmed to prove yet",
+    spv.describeProofs({ checked: 0, proven: 0 }, 0),
+  );
+  check(
+    "summary: confirmed rows but none checked",
+    spv.describeProofs({ checked: 0, proven: 0 }, 4) ===
+      "transactions not proven yet",
+    spv.describeProofs({ checked: 0, proven: 0 }, 4),
+  );
+  check(
+    "summary: all proven",
+    spv.describeProofs({ checked: 3, proven: 3 }, 3) ===
+      "3 of 3 confirmed transactions proven",
+    spv.describeProofs({ checked: 3, proven: 3 }, 3),
+  );
+  check(
+    "summary: one transaction is singular",
+    spv.describeProofs({ checked: 1, proven: 1 }, 1) ===
+      "1 of 1 confirmed transaction proven",
+    spv.describeProofs({ checked: 1, proven: 1 }, 1),
+  );
+  check(
+    "summary: a failed proof shows the shortfall",
+    spv.describeProofs({ checked: 4, proven: 2 }, 4) ===
+      "2 of 4 confirmed transactions proven",
+    spv.describeProofs({ checked: 4, proven: 2 }, 4),
+  );
+  check(
+    "summary: bounded work is disclosed",
+    spv.describeProofs({ checked: 8, proven: 8 }, 20).endsWith("(newest 8 checked)"),
+    spv.describeProofs({ checked: 8, proven: 8 }, 20),
+  );
+
+  // Leave nothing behind for anything that runs after this section.
+  store.removeItem("rxd.wallet.customServers.v1");
+  store.removeItem("rxd.wallet.hiddenServers.v1");
+  store.removeItem("rxd.wallet.preferredServer");
+}
 console.log(`\n${failures === 0 ? "ALL BROWSER-PATH CHECKS PASSED" : failures + " CHECK(S) FAILED"}`);
 process.exit(failures === 0 ? 0 : 1);
 
