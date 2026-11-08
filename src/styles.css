@@ -710,14 +710,30 @@ button.row-button:active {
   }
 }
 
+/*
+ * A splash fills the shell and centres its contents — but only when it *is* the
+ * shell (boot, busy). Onboarding's welcome step and Unlock put `.content`
+ * beside it, and there the splash must keep its natural height so `.content` can
+ * take the rest and pin its fields and buttons to the bottom.
+ *
+ * `min-height: 100%` used to cover both cases by accident: against an
+ * auto-height `.app` it resolved to nothing, so a splash with a sibling stayed
+ * at its content height. Once `.app` became a definite height (see the popup
+ * sizing block) it resolved to the full 600px popup and squeezed `.content` to
+ * 8px, which clipped both welcome buttons and the whole unlock form.
+ */
 .splash {
-  min-height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 16px;
   text-align: center;
+}
+
+.splash:only-child {
+  flex: 1;
+  min-height: 0;
 }
 
 .splash .brand-mark {
