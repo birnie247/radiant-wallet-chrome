@@ -1,13 +1,17 @@
-# Radiant Wallet — Chrome extension
+# Lumen RXD Wallet — Chrome extension
 
 A self-custody wallet for [Radiant](https://radiantblockchain.org) (RXD) as a
 Manifest V3 Chrome extension. The recovery phrase is generated, encrypted and used
 to sign entirely inside the extension; no server ever sees a private key.
 
-This is a port of the Android build in `../rxd-wallet` — the wallet, signing and
-transaction code is the same, battle-tested TypeScript. What differs is everything
-that touched a native layer, because a browser extension has no Keystore, no
-`FLAG_SECURE` and no popup that survives a click outside.
+Formerly *Radiant Wallet* — the same app under the name the Android build moved to
+in 1.1.0. Nothing about its identity changed: same storage keys, same vault format,
+so an existing wallet keeps working.
+
+This is a port of the Android build in `birnie247/radiant-wallet-android` — the
+wallet, signing and transaction code is the same, battle-tested TypeScript. What
+differs is everything that touched a native layer, because a browser extension has no
+Keystore, no `FLAG_SECURE` and no popup that survives a click outside.
 
 | | |
 | --- | --- |
@@ -27,7 +31,7 @@ that touched a native layer, because a browser extension has no Keystore, no
 ## Install
 
 **From a release (no build tools):** download
-`radiant-wallet-extension-<version>.zip` from
+`lumen-rxd-wallet-extension-<version>.zip` from
 [Releases](https://github.com/birnie247/radiant-wallet-chrome/releases/latest),
 extract it, then open `chrome://extensions` → enable **Developer mode** → **Load
 unpacked** → select the extracted folder.

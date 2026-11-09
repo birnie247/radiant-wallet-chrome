@@ -33,7 +33,7 @@ export default function Home({ nav }: { nav: Nav }) {
         <div className="brand">
           <BrandMark />
           <div className="brand-name">
-            Radiant
+            Lumen RXD
             <small>
               {secrets.network === "mainnet" ? "Mainnet" : "Testnet"} · RXD
             </small>

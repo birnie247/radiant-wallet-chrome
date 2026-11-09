@@ -19,7 +19,7 @@ function report(kind: string, detail: string): void {
   if (!root) return;
   const pre = document.createElement("pre");
   pre.className = "boot-error";
-  pre.textContent = `Radiant Wallet failed to start\n\n${kind}\n${detail}`;
+  pre.textContent = `Lumen RXD Wallet failed to start\n\n${kind}\n${detail}`;
   root.replaceChildren(pre);
 }
 

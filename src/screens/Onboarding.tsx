@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { HDWallet } from "@radiant-core/sdk";
-import { checkPassphrase, saveVault, type WalletSecrets } from "../lib/vault";
+import { checkPassphrase, LEGACY_COIN_TYPE, saveVault, type WalletSecrets } from "../lib/vault";
 import BrandMark from "../components/BrandMark";
 
 type Step = "welcome" | "create" | "restore" | "passphrase";
@@ -17,6 +17,7 @@ export default function Onboarding({
   const [step, setStep] = useState<Step>("welcome");
   const [mnemonic, setMnemonic] = useState("");
   const [restoreInput, setRestoreInput] = useState("");
+  const [legacySeed, setLegacySeed] = useState(false);
   const [passphrase, setPassphrase] = useState("");
   const [repeat, setRepeat] = useState("");
   const [savedSeed, setSavedSeed] = useState(false);
@@ -82,8 +83,10 @@ export default function Onboarding({
         mnemonic,
         network: "mainnet",
         server: "",
-        label: "Radiant",
+        label: "Lumen",
         createdAt: Date.now(),
+        // Only set for a v1 seed; absent means the current coin type 512.
+        ...(legacySeed ? { coinType: LEGACY_COIN_TYPE } : {}),
       };
       await saveVault(passphrase, secrets);
       await onReady(secrets);
@@ -102,7 +105,7 @@ export default function Onboarding({
         >
           <BrandMark />
           <div>
-            <div style={{ fontWeight: 700, fontSize: 22 }}>Radiant Wallet</div>
+            <div style={{ fontWeight: 700, fontSize: 22 }}>Lumen RXD Wallet</div>
             <div style={{ color: "var(--text-faint)", fontSize: 13 }}>
               Non-custodial RXD · keys stay on this device
             </div>
@@ -207,6 +210,28 @@ export default function Onboarding({
               word list.
             </div>
           </div>
+
+          <label
+            className="row"
+            style={{ border: "none", cursor: "pointer", paddingBottom: 0 }}
+          >
+            <input
+              type="checkbox"
+              checked={legacySeed}
+              onChange={(e) => setLegacySeed(e.target.checked)}
+              style={{ width: 22, height: 22, flex: "0 0 auto" }}
+            />
+            <div className="grow" style={{ fontSize: 14 }}>
+              This is a v1 seed
+              <div className="hint">
+                For older Radiant wallets, whose addresses come from m/44&apos;/0&apos;.
+                Wallets made here — and restores by default — use m/44&apos;/512&apos;.
+                Same phrase, different addresses: tick this only if the phrase is
+                from a wallet older than Radiant&apos;s own coin type.
+              </div>
+            </div>
+          </label>
+
           {error && <div className="error">{error}</div>}
           <button className="btn primary" onClick={() => void acceptRestore()}>
             Continue

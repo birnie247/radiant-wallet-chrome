@@ -28,7 +28,7 @@ import {
   type NetworkName,
   type Utxo,
 } from "@radiant-core/sdk";
-import { autoCandidates, findServer, independentServers } from "./servers";
+import { autoCandidates, crossCheckCandidates, findServer } from "./servers";
 
 export const GAP_LIMIT = 20;
 export const HARD_ADDRESS_CAP = 200;
@@ -266,9 +266,11 @@ export async function crossCheckTip(
   primaryEndpoint: string,
   timeoutMs = 5_000,
 ): Promise<TipCheck | null> {
-  // Bounded: at most two peers, each with a short timeout. This runs on the
-  // refresh path, so a dead peer must never cost the user more than ~10s.
-  for (const entry of independentServers(network, primaryEndpoint).slice(0, 2)) {
+  // Bounded: at most two peers, each from a DIFFERENT operator, each with a short
+  // timeout. This runs on the refresh path, so a dead peer must never cost the user
+  // more than ~10s - and the second peer must be a second *opinion*, not a second
+  // host belonging to the same administrator (see crossCheckCandidates).
+  for (const entry of crossCheckCandidates(network, primaryEndpoint)) {
     const client = new ElectrumClient({ endpoint: entry.url, reconnect: false });
     try {
       await withTimeout(client.connect(), timeoutMs, `connect ${entry.url}`);

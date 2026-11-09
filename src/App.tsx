@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HDWallet } from "@radiant-core/sdk";
-import { hasVault, unlockVault, type WalletSecrets } from "./lib/vault";
+import { hasVault, unlockVault, RADIANT_COIN_TYPE, type WalletSecrets } from "./lib/vault";
 import { connect, crossCheckTip, scanWallet } from "./lib/wallet";
 import { getPreferredServer } from "./lib/servers";
 import { loadHistory, type HistoryEntry } from "./lib/history";
@@ -298,6 +298,9 @@ export default function App() {
 
       const wallet = HDWallet.fromMnemonic(secrets.mnemonic, {
         network: secrets.network,
+        // Absent means 512 (Radiant). A wallet restored from a v1 seed stores 0,
+        // which is the only way the same phrase reaches the old address set.
+        coinType: secrets.coinType ?? RADIANT_COIN_TYPE,
       });
 
       setBusy("Scanning the blockchain…");
@@ -548,7 +551,7 @@ function Splash({ message }: { message?: string }) {
       <div className="splash">
         <BrandMark />
         <div>
-          <div style={{ fontWeight: 700, fontSize: 20 }}>Radiant Wallet</div>
+          <div style={{ fontWeight: 700, fontSize: 20 }}>Lumen RXD Wallet</div>
           <div style={{ color: "var(--text-faint)", fontSize: 13 }}>
             Non-custodial · RXD
           </div>

@@ -55,7 +55,7 @@ const repoSlug = (() => {
 })();
 
 mkdirSync(OUT_DIR, { recursive: true });
-const assetName = `radiant-wallet-extension-${version}.zip`;
+const assetName = `lumen-rxd-wallet-extension-${version}.zip`;
 const assetPath = join(OUT_DIR, assetName);
 const entries = zipDirectory("dist", assetPath);
 const bytes = readFileSync(assetPath);
@@ -139,7 +139,7 @@ let release;
       body: JSON.stringify({
         tag_name: tag,
         target_commitish: "main",
-        name: `Radiant Wallet extension ${version}`,
+        name: `Lumen RXD Wallet extension ${version}`,
         body: buildBody(),
         draft: false,
         prerelease: false,

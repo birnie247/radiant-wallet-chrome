@@ -36,6 +36,20 @@ const MAX_ITERATIONS = 5_000_000;
 
 export const MIN_PASSPHRASE_LENGTH = 12;
 
+/** SLIP-44 coin type of every wallet this extension creates (Radiant). */
+export const RADIANT_COIN_TYPE = 512;
+
+/**
+ * Coin type used by seeds made *before* 512 became the default.
+ *
+ * The SDK's `HDWalletOptions.coinType` documents exactly this: "Pass 0 only to
+ * recover legacy wallets created before the coin-type-512 default." The same
+ * phrase under a different coin type derives a completely different address set,
+ * so this is the only thing that makes an old seed find its funds. Android calls
+ * these "v1 seeds"; the checkbox in onboarding writes this value.
+ */
+export const LEGACY_COIN_TYPE = 0;
+
 export interface WalletSecrets {
   mnemonic: string;
   network: NetworkName;
@@ -43,6 +57,13 @@ export interface WalletSecrets {
   server: string;
   label: string;
   createdAt: number;
+  /**
+   * Coin type this wallet derives with. Absent means {@link RADIANT_COIN_TYPE};
+   * {@link LEGACY_COIN_TYPE} marks a wallet restored from a "v1" seed. Stored
+   * rather than inferred, because derivation must be identical on every unlock or
+   * the wallet looks empty.
+   */
+  coinType?: number;
 }
 
 export interface StoredVault {

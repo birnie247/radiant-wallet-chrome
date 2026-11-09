@@ -53,10 +53,24 @@ export interface ServerEntry {
   custom?: boolean;
 }
 /**
- * Last live probe: 2026-11-06, the same one the Android build pins. All three
+ * Last live probe: 2026-11-08, the same one the Android build pins. All four
  * mainnet endpoints below completed a `server.version` handshake and reported
- * Radiant genesis, with tips of 479,536 / 479,536 / 479,538 - the radiantcore.org
- * peer was two blocks ahead, so none of them is stale.
+ * Radiant genesis. On 2026-11-06 the tips were 479,536 / 479,536 / 479,538 - the
+ * radiantcore.org peer was two blocks ahead, so none of them was stale.
+ *
+ * `wss://rxdexplorer.com` is deliberately FIRST: it is the default a fresh install
+ * lands on, so it is the endpoint most users will actually talk to. On 2026-11-08
+ * it answered in 315 ms as `ElectrumX 1.4.1` at height 480,110, with a valid
+ * Let's Encrypt certificate (CN=rxdexplorer.com, chain verified, expires
+ * 2027-02-05) and a `genesis_hash` equal to GENESIS_HASH in spv.ts. It listens on
+ * :443 only - `:50022` times out.
+ *
+ * It is operated by this wallet's maintainer, so its `operator` value is a known
+ * fact rather than the hostname guess used for user-added servers. That is also why
+ * the tip cross-check still earns its keep: this server is compared against
+ * radiant4people.com and radiantcore.org, neither of which the maintainer has any
+ * part in. A user who wants to trust nothing connected to this project can press
+ * Use on either of those in Settings.
  *
  * Removed on 2026-11-06:
  *   - `radiant2/radiantus/radiant4.bladenet.online:50022` - all three timed out.
@@ -69,6 +83,11 @@ export interface ServerEntry {
  */
 export const SERVERS: Record<NetworkName, ServerEntry[]> = {
   mainnet: [
+    {
+      url: "wss://rxdexplorer.com",
+      operator: "rxdexplorer.com",
+      verified: true,
+    },
     {
       url: "wss://electrumx.radiant4people.com:50022",
       operator: "radiant4people.com",
@@ -498,12 +517,16 @@ export function autoCandidates(
 }
 
 /**
- * Endpoints run by a DIFFERENT operator than `endpoint` - the only ones useful
- * for an independent cross-check. Verified endpoints are ordered first, but
- * unverified ones are included: a cross-check only compares chain heights, it
- * never trusts the peer data. Including them means the check can still detect
- * disagreement when the curated peers are offline. If every candidate is down the
- * check simply returns null and no warning is shown (better than a false alarm).
+ * Endpoints run by a DIFFERENT operator than `endpoint` - the raw pool for an
+ * independent cross-check. Verified endpoints are ordered first, but unverified
+ * ones are included: a cross-check only compares chain heights, it never trusts the
+ * peer data. Including them means the check can still detect disagreement when the
+ * curated peers are offline. If every candidate is down the check simply returns
+ * null and no warning is shown (better than a false alarm).
+ *
+ * Note this returns *every* endpoint from those operators, so two hosts behind one
+ * administrator both appear. Use {@link crossCheckCandidates} when you need
+ * independent opinions rather than a list of alternatives.
  */
 export function independentServers(
   network: NetworkName,
@@ -518,6 +541,33 @@ export function independentServers(
     ...others.filter((s) => s.verified),
     ...others.filter((s) => !s.verified),
   ];
+}
+
+/**
+ * Up to `limit` peers for a tip cross-check, each from a DIFFERENT operator -
+ * different from the primary's and from each other's.
+ *
+ * Taking the first N of {@link independentServers} is not quorum, it is a list:
+ * with `rxdexplorer.com` as the default primary, the first two candidates were both
+ * radiant4people.com entries, so a failure on the first bought nothing on the second
+ * - the same administrator simply answered twice. Deduping by operator makes the
+ * second peer an actual second opinion, which is the whole point of the check
+ * (security report MEDIUM-2).
+ */
+export function crossCheckCandidates(
+  network: NetworkName,
+  endpoint: string,
+  limit = 2,
+): ServerEntry[] {
+  const picked: ServerEntry[] = [];
+  const operators = new Set<string>();
+  for (const entry of independentServers(network, endpoint)) {
+    if (operators.has(entry.operator)) continue;
+    operators.add(entry.operator);
+    picked.push(entry);
+    if (picked.length >= limit) break;
+  }
+  return picked;
 }
 
 /**
