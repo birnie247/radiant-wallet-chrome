@@ -1,6 +1,14 @@
 import { useState } from "react";
 import { HDWallet } from "@radiant-core/sdk";
-import { checkPassphrase, LEGACY_COIN_TYPE, saveVault, type WalletSecrets } from "../lib/vault";
+import {
+  checkPassphrase,
+  LEGACY_COIN_TYPE,
+  RADIANT_COIN_TYPE,
+  saveVault,
+  type WalletSecrets,
+} from "../lib/vault";
+import { detectSeedDerivation, type CoinTypeGuess } from "../lib/wallet";
+import { getPreferredServer } from "../lib/servers";
 import BrandMark from "../components/BrandMark";
 
 type Step = "welcome" | "create" | "restore" | "passphrase";
@@ -17,7 +25,13 @@ export default function Onboarding({
   const [step, setStep] = useState<Step>("welcome");
   const [mnemonic, setMnemonic] = useState("");
   const [restoreInput, setRestoreInput] = useState("");
-  const [legacySeed, setLegacySeed] = useState(false);
+  /**
+   * Where the phrase came from. A restore has to ask the chain which address
+   * set it belongs to; a new wallet is always the current coin type.
+   */
+  const [origin, setOrigin] = useState<"create" | "restore">("create");
+  const [detected, setDetected] = useState<CoinTypeGuess | null>(null);
+  const [busyText, setBusyText] = useState("");
   const [passphrase, setPassphrase] = useState("");
   const [repeat, setRepeat] = useState("");
   const [savedSeed, setSavedSeed] = useState(false);
@@ -28,6 +42,8 @@ export default function Onboarding({
 
   function startCreate() {
     setError("");
+    setOrigin("create");
+    setDetected(null);
     setMnemonic(HDWallet.generateMnemonic());
     setSavedSeed(false);
     setStep("create");
@@ -36,6 +52,8 @@ export default function Onboarding({
   function startRestore() {
     setError("");
     setRestoreInput("");
+    setOrigin("restore");
+    setDetected(null);
     setStep("restore");
   }
 
@@ -62,6 +80,27 @@ export default function Onboarding({
     }
     setError("");
     setMnemonic(candidate);
+
+    // The phrase alone cannot say which BIP44 address set it belongs to: the
+    // same words under coin type 512 and 0 are two disjoint sets. Ask the chain
+    // now, while the user is still on this step, so a restore does not end in an
+    // empty wallet that looks like lost funds.
+    setWorking(true);
+    setBusyText("Checking which address set this phrase uses…");
+    try {
+      const guess = await detectSeedDerivation(candidate, {
+        network: "mainnet",
+        // Probe through the same server the wallet will use, so the answer and
+        // the balance that follows come from one source.
+        server: getPreferredServer() || undefined,
+        onProgress: setBusyText,
+      });
+      setDetected(guess);
+    } finally {
+      setWorking(false);
+      setBusyText("");
+    }
+
     await leaveSensitive("passphrase");
   }
 
@@ -85,8 +124,11 @@ export default function Onboarding({
         server: "",
         label: "Lumen",
         createdAt: Date.now(),
-        // Only set for a v1 seed; absent means the current coin type 512.
-        ...(legacySeed ? { coinType: LEGACY_COIN_TYPE } : {}),
+        // Stored only when the chain told us this is a pre-512 wallet; absent
+        // means the current coin type, so nothing is written for new wallets.
+        ...(origin === "restore" && detected?.coinType === LEGACY_COIN_TYPE
+          ? { coinType: LEGACY_COIN_TYPE }
+          : {}),
       };
       await saveVault(passphrase, secrets);
       await onReady(secrets);
@@ -95,6 +137,27 @@ export default function Onboarding({
       setWorking(false);
     }
   }
+
+  /**
+   * What the restore probe found, in plain words.
+   *
+   * Deliberately three separate outcomes: "found on the old set", "found on the
+   * current set", and "couldn't ask / found nothing". The last two must never be
+   * merged — claiming a phrase was checked when no server answered would be a
+   * lie, and claiming it is empty when it merely could not be read is worse.
+   */
+  const detectionNote = (() => {
+    if (origin !== "restore" || !detected) return "";
+    if (detected.inconclusive) {
+      return "Couldn't reach a Radiant server to check which address set this phrase uses, so it will use the current one (m/44'/512'). Nothing is lost either way: if the wallet looks empty, Settings → Derivation can switch address sets.";
+    }
+    if (detected.coinType === LEGACY_COIN_TYPE) {
+      return "This phrase has activity on the older address set (m/44'/0'), so Lumen will use that one — it is where your funds are.";
+    }
+    return detected.hits[RADIANT_COIN_TYPE] > 0
+      ? "This phrase has activity on the current address set (m/44'/512')."
+      : "No activity found on either address set yet. If you expected funds here, Settings → Derivation can switch address sets.";
+  })();
 
   if (step === "welcome") {
     return (
@@ -207,34 +270,21 @@ export default function Onboarding({
             />
             <div className="hint">
               12–24 words separated by spaces. Radiant uses the standard BIP39
-              word list.
+              word list. Lumen will check the chain for this phrase and use
+              whichever address set it finds — the current m/44&apos;/512&apos;
+              or the older m/44&apos;/0&apos; used by earlier Radiant wallets.
+              Only derived addresses are sent to the server.
             </div>
           </div>
 
-          <label
-            className="row"
-            style={{ border: "none", cursor: "pointer", paddingBottom: 0 }}
-          >
-            <input
-              type="checkbox"
-              checked={legacySeed}
-              onChange={(e) => setLegacySeed(e.target.checked)}
-              style={{ width: 22, height: 22, flex: "0 0 auto" }}
-            />
-            <div className="grow" style={{ fontSize: 14 }}>
-              This is a v1 seed
-              <div className="hint">
-                For older Radiant wallets, whose addresses come from m/44&apos;/0&apos;.
-                Wallets made here — and restores by default — use m/44&apos;/512&apos;.
-                Same phrase, different addresses: tick this only if the phrase is
-                from a wallet older than Radiant&apos;s own coin type.
-              </div>
-            </div>
-          </label>
-
+          {busyText && <div className="notice">{busyText}</div>}
           {error && <div className="error">{error}</div>}
-          <button className="btn primary" onClick={() => void acceptRestore()}>
-            Continue
+          <button
+            className="btn primary"
+            onClick={() => void acceptRestore()}
+            disabled={working}
+          >
+            {working ? "Checking the chain…" : "Continue"}
           </button>
         </div>
       </div>
@@ -259,6 +309,7 @@ export default function Onboarding({
           never sent anywhere. If you forget it, you will need your written
           recovery phrase to get back in.
         </div>
+        {detectionNote && <div className="notice">{detectionNote}</div>}
         <div className="field">
           <label>Passphrase</label>
           <input
@@ -282,7 +333,11 @@ export default function Onboarding({
         </div>
         {error && <div className="error">{error}</div>}
         <button className="btn primary" onClick={finish} disabled={working}>
-          {working ? "Creating wallet…" : "Create wallet"}
+          {working
+            ? "Setting up…"
+            : origin === "restore"
+              ? "Restore wallet"
+              : "Create wallet"}
         </button>
       </div>
     </div>

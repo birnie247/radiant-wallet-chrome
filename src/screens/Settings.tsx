@@ -22,14 +22,22 @@ import type { Nav } from "../types";
 export default function Settings({ nav }: { nav: Nav }) {
   const { session } = nav;
   const network = session.secrets.network;
-  /** Coin type this wallet derives with; LEGACY_COIN_TYPE marks a v1 seed. */
+  /** Coin type this wallet derives with; LEGACY_COIN_TYPE marks a pre-512 seed. */
   const coinType = session.secrets.coinType ?? RADIANT_COIN_TYPE;
+  /** The other address set — the only other choice there is. */
+  const nextCoinType =
+    coinType === LEGACY_COIN_TYPE ? RADIANT_COIN_TYPE : LEGACY_COIN_TYPE;
 
   const [confirmWipe, setConfirmWipe] = useState(false);
   const [revealOpen, setRevealOpen] = useState(false);
   const [passphrase, setPassphrase] = useState("");
   const [revealed, setRevealed] = useState("");
   const [revealError, setRevealError] = useState("");
+  /** The coin type a pending derivation switch would move to. */
+  const [derivationOpen, setDerivationOpen] = useState(false);
+  const [derivePassphrase, setDerivePassphrase] = useState("");
+  const [deriveError, setDeriveError] = useState("");
+  const [deriveBusy, setDeriveBusy] = useState(false);
   const [switching, setSwitching] = useState("");
 
   const [servers, setServers] = useState<ServerEntry[]>(() => allServers(network));
@@ -149,6 +157,25 @@ export default function Settings({ nav }: { nav: Nav }) {
     }
   }
 
+  /**
+   * Move the wallet to the other BIP44 coin type. The passphrase is required
+   * because the vault is re-encrypted with the new value; a wrong one fails
+   * before anything changes, and the sheet stays open with the error.
+   */
+  async function switchAddressSet() {
+    setDeriveError("");
+    setDeriveBusy(true);
+    try {
+      await nav.switchDerivation(nextCoinType, derivePassphrase);
+      setDerivationOpen(false);
+      setDerivePassphrase("");
+    } catch (e) {
+      setDeriveError((e as Error).message);
+    } finally {
+      setDeriveBusy(false);
+    }
+  }
+
   return (
     <div className="app">
       <div className="topbar">
@@ -197,6 +224,42 @@ export default function Settings({ nav }: { nav: Nav }) {
               <div className="sub">{session.endpoint.replace("wss://", "")}</div>
             </div>
           </div>
+        </div>
+
+        <div className="section-title">Derivation</div>
+        <div className="card tight">
+          <div className="row" style={{ paddingTop: 0 }}>
+            <div className="grow">
+              <div className="title">Address set</div>
+              <div className="sub">
+                BIP44 m/44&apos;/{coinType}&apos;/account&apos;/change/index
+              </div>
+            </div>
+            {coinType === LEGACY_COIN_TYPE && (
+              <span className="pill warn">legacy</span>
+            )}
+          </div>
+        </div>
+        <div className="btn-row" style={{ flexWrap: "wrap" }}>
+          <button
+            className="btn small"
+            disabled={!!nav.busy}
+            onClick={() => {
+              setDeriveError("");
+              setDerivePassphrase("");
+              setDerivationOpen(true);
+            }}
+          >
+            Switch address set…
+          </button>
+        </div>
+        <div className="hint">
+          One recovery phrase derives a completely different set of addresses
+          under each coin type, and funds only appear under the one that holds
+          them.
+          {coinType === LEGACY_COIN_TYPE
+            ? " This wallet is on the older set — switch back to m/44'/512' if it was created in Lumen."
+            : " Switch to m/44'/0' if this wallet came from an older Radiant app and looks empty."}
         </div>
 
         <div className="section-title">ElectrumX server</div>
@@ -384,17 +447,6 @@ export default function Settings({ nav }: { nav: Nav }) {
           </div>
           <div className="row">
             <div className="grow">
-              <div className="title">Derivation</div>
-              <div className="sub">
-                BIP44 m/44'/{coinType}'/account'/change/index
-              </div>
-            </div>
-            {coinType === LEGACY_COIN_TYPE && (
-              <span className="pill warn">v1 seed</span>
-            )}
-          </div>
-          <div className="row">
-            <div className="grow">
               <div className="title">Address type</div>
               <div className="sub">P2PKH base58 (Radiant has no SegWit)</div>
             </div>
@@ -432,6 +484,23 @@ export default function Settings({ nav }: { nav: Nav }) {
             setRemoveError("");
           }}
           onConfirm={() => void confirmRemove()}
+        />
+      )}
+
+      {derivationOpen && (
+        <DerivationSheet
+          nextCoinType={nextCoinType}
+          passphrase={derivePassphrase}
+          setPassphrase={setDerivePassphrase}
+          error={deriveError}
+          busy={deriveBusy}
+          onSwitch={() => void switchAddressSet()}
+          onClose={() => {
+            if (deriveBusy) return;
+            setDerivationOpen(false);
+            setDerivePassphrase("");
+            setDeriveError("");
+          }}
         />
       )}
     </div>
@@ -511,6 +580,76 @@ function RevealSheet({
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Switch the wallet to the other BIP44 coin type.
+ *
+ * This is a re-derivation, not a transfer: nothing is signed, broadcast or
+ * moved, and funds on the other address set stay exactly where they are — they
+ * merely stop being visible here until the user switches back. Saying that out
+ * loud is the difference between a fix and a panic.
+ */
+function DerivationSheet({
+  nextCoinType,
+  passphrase,
+  setPassphrase,
+  error,
+  busy,
+  onSwitch,
+  onClose,
+}: {
+  nextCoinType: number;
+  passphrase: string;
+  setPassphrase: (v: string) => void;
+  error: string;
+  busy: boolean;
+  onSwitch: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="sheet-backdrop" onClick={busy ? undefined : onClose}>
+      <div className="sheet" onClick={(e) => e.stopPropagation()}>
+        <div style={{ fontWeight: 700, fontSize: 17 }}>
+          Switch to m/44&apos;/{nextCoinType}&apos;?
+        </div>
+        <div className="hint">
+          {nextCoinType === LEGACY_COIN_TYPE
+            ? "Older Radiant wallets derived at m/44'/0'. Use this if the wallet was restored from one of them and the balance looks empty."
+            : "m/44'/512' is the current Radiant default, used by wallets created in Lumen."}
+        </div>
+        <div className="hint">
+          The same recovery phrase derives a different set of addresses under
+          each coin type. Switching sends, moves and signs nothing — funds on the
+          other address set stay exactly where they are, but they will not be
+          shown until you switch back.
+        </div>
+        <div className="field">
+          <label>Passphrase</label>
+          <input
+            type="password"
+            value={passphrase}
+            onChange={(e) => setPassphrase(e.target.value)}
+            autoCapitalize="none"
+            autoCorrect="off"
+          />
+        </div>
+        {error && <div className="error">{error}</div>}
+        <div className="btn-row">
+          <button className="btn ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button
+            className="btn primary"
+            onClick={onSwitch}
+            disabled={busy || passphrase.length === 0}
+          >
+            {busy ? "Switching…" : "Switch"}
+          </button>
+        </div>
       </div>
     </div>
   );

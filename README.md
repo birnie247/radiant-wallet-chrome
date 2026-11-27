@@ -9,9 +9,11 @@ in 1.1.0. Nothing about its identity changed: same storage keys, same vault form
 so an existing wallet keeps working.
 
 This is a port of the Android build in `birnie247/radiant-wallet-android` — the
-wallet, signing and transaction code is the same, battle-tested TypeScript. What
-differs is everything that touched a native layer, because a browser extension has no
-Keystore, no `FLAG_SECURE` and no popup that survives a click outside.
+wallet, signing and transaction code is the same, battle-tested TypeScript,
+synced through Android **1.4.0** (Glyph tokens, coin-type detection, the
+latest-transaction view). What differs is everything that touched a native
+layer, because a browser extension has no Keystore, no `FLAG_SECURE` and no
+popup that survives a click outside.
 
 | | |
 | --- | --- |
@@ -21,6 +23,7 @@ Keystore, no `FLAG_SECURE` and no popup that survives a click outside.
 | Licence | MIT, with Apache-2.0 artwork |
 
 **Contents:** [Install](#install) · [What changed from the Android app](#what-changed-from-the-android-app) ·
+[Glyph tokens](#glyph-tokens) ·
 [Security model](#security-model) · [MV3 constraints that shaped this](#mv3-constraints-that-shaped-this) ·
 [SPV](#spv-proving-transactions-instead-of-trusting-the-server) ·
 [Background updates](#background-updates-offscreen-document) · [Architecture](#architecture) ·
@@ -69,11 +72,43 @@ Sending still requires the passphrase **every time**, and the secret that comes 
 must belong to the wallet on screen — that check survives from the Android build
 (`src/lib/reauth.ts`).
 
-**Kept in step with the Android build:** the curated endpoint list, the SPV proof
-summary (`describeProofs`) and the user-managed server list are ported from
-Android 1.0.12 / 1.0.13 with the same storage keys and the same tests
-(`scripts/browser-path-check.ts`), so the two clients cannot drift apart silently.
-Where they differ is only what a browser has no equivalent for — the table above.
+**Kept in step with the Android build:** this extension is synced with Android
+**1.4.0**. The curated endpoint list, the SPV proof summary (`describeProofs`),
+the user-managed server list, the operator-deduped tip cross-check, the
+latest-transaction activity view with tap-to-copy addresses, the chain-probed
+coin-type detection on restore (with the Settings → Derivation switch), and the
+Glyph token layer (view + send) are all ported with the same storage keys and
+the same tests (`scripts/browser-path-check.ts`), so the two clients cannot
+drift apart silently. Where they differ is only what a browser has no
+equivalent for — the table above.
+
+## Glyph tokens
+
+`src/lib/glyphs.ts` is the Android 1.4.0 token data layer, ported unchanged
+except for the metadata cache, which uses the extension's storage shim instead
+of `localStorage`:
+
+- **Discovery** queries the ZEROED-ref NFT/FT scripthashes of each used address
+  — the index keys ElectrumX actually uses — and every returned row is accepted
+  only after its script is rebuilt locally from `(address, ref)` and hashes
+  back to the query. A lying server cannot sneak a foreign script into signing.
+- **Identity is the ref**, never name or ticker: two tokens can share a string.
+- **Metadata** comes from the reveal transaction's `gly` CBOR envelope. Decoded
+  payloads are size-capped, and icons are limited to raster MIME types rendered
+  as `data:` URIs — SVG/markup is dropped at the boundary, not in the UI.
+- **Sending** (whole NFT / whole or partial FT) goes through the SDK's
+  `transferToken`/`transferFungible`, with token-free RXD at the *same address*
+  as the only fee funding. A token output is never spent as a fee, so sending
+  cannot burn the token. Sub-dust FT sends are refused loudly (the exact-balance
+  trap). Every transfer re-authenticates with the passphrase, exactly like an
+  RXD payment — the Android build's biometric option has no browser equivalent.
+- **Live updates**: the foreground subscribes to the token scripthashes too
+  (`includeTokens`), and the background watch list carries the same hashes, so
+  an incoming token lights the toolbar badge while the popup is closed.
+
+Token sends are proven on mainnet by the Android build's live harness; this
+extension shares that code and verifies the guards offline in
+`check:browser`, but has not yet made its own funded token send — start small.
 
 ## Security model
 
@@ -200,7 +235,10 @@ src/
     storage.ts          write-through mirror over chrome.storage.local
     session.ts          unlocked-session lifetime in chrome.storage.session
     vault.ts            encrypted seed (versioned KDF policy)
-    wallet.ts           connect, BIP44 scan, UTXO fetch, build/broadcast
+    wallet.ts           connect, BIP44 scan, UTXO fetch, build/broadcast,
+                        coin-type detection on restore
+    glyphs.ts           Glyph token discovery, metadata, ref-safe sends
+    clipboard.ts        clipboard writes with an honest success flag
     history.ts          net effect and confirmation counts
     liveUpdates.ts      scripthash push subscriptions
     servers.ts          curated endpoints, user-added servers, connect budgets
@@ -209,7 +247,8 @@ src/
     reauth.ts           per-payment passphrase confirmation
     spv.ts              header PoW, chain linkage, merkle inclusion
     watchList.ts        public watch list handed to the background
-  screens/              Onboarding, Unlock, Home, Receive, Send, Settings
+  screens/              Onboarding, Unlock, Home, Receive, Send, Settings,
+                        Tokens, TokenDetail, TokenSend
 public/
   manifest.json         MV3 manifest
   icons/                generated by `npm run icons`
@@ -267,7 +306,10 @@ npm run check             # all of the above, in order
 Unlock rather than offering to create a second wallet over the first. `check:csp`
 proves the SDK runs without `unsafe-eval`. `check:browser` covers the money paths —
 BIP39 derivation against a known vector, a signed transaction (sighash `0x41`,
-correct pubkey), the ref-burn guard, and connection-budget behaviour.
+correct pubkey), the ref-burn guard, connection-budget behaviour, and the Glyph
+layer: zeroed-ref discovery hashes, CBOR envelope decoding (both push-length
+forms), the raster-only icon boundary, token-free funding screening, the
+sub-dust/over-balance send guards, token subscriptions and coin-type detection.
 
 Each of these caught a real bug while being written: a missing-value/`0` collision
 in the unlock-timeout parser, `localStorage` call sites that had never been moved to
@@ -294,8 +336,11 @@ assertion that compared the viewport to itself.
 5. **`chrome.storage.local` is not encrypted by the browser.** It is protected by the
    OS profile and the passphrase, not by Chrome.
 6. **Screenshots cannot be blocked**, so the recovery-phrase sheet warns instead.
-7. **QR scanning, Glyph tokens and WAVE names** are not implemented, as in the
-   Android build.
+7. **QR scanning and WAVE names** are not implemented, as in the Android build.
+   Glyph tokens are implemented (view + send, synced from Android 1.4.0); an
+   in-app mint UI is not built in either client — mint is proven via the SDK
+   harness only. A token can only be sent onward from an address that also holds
+   RXD for the fee.
 
 ## Licence
 

@@ -14,6 +14,7 @@
 import { addressToScriptHash } from "@radiant-core/sdk";
 import { getItem, removeItem, setItem } from "./storage";
 import { DEFAULT_LOOKAHEAD, watchTargets } from "./liveUpdates";
+import { tokenScriptHashesFor } from "./glyphs";
 import type { ScannedAddress } from "./wallet";
 
 const WATCH_KEY = "rxd.watch.list";
@@ -38,10 +39,26 @@ export function buildWatchList(
   // Same targets the foreground subscribes to, so background and foreground agree
   // about which addresses count as "ours".
   const watched = watchTargets(addresses, lookahead);
+  // Incoming Glyph tokens are indexed under the ZEROED-ref NFT/FT scripthashes
+  // of the used addresses, not their plain P2PKH hashes (see glyphs.ts). The
+  // foreground subscribes to those too (liveUpdates includeTokens), so the
+  // background watcher must watch them as well or a token arriving while the
+  // popup is closed would never light the badge. These hashes are public chain
+  // data, exactly like the address hashes — no key crosses the boundary.
+  const tokenHashes = [
+    ...new Set(
+      addresses
+        .filter((a) => a.used)
+        .flatMap((a) => tokenScriptHashesFor(a.key.address).map((t) => t.hash)),
+    ),
+  ];
   return {
     endpoint,
     addresses: watched,
-    scripthashes: watched.map((address) => addressToScriptHash(address, "mainnet")),
+    scripthashes: [
+      ...watched.map((address) => addressToScriptHash(address, "mainnet")),
+      ...tokenHashes,
+    ],
     savedAt: Date.now(),
   };
 }

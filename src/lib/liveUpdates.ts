@@ -25,6 +25,7 @@
  * cap subscriptions, and the rest still work.
  */
 import type { ScannedAddress } from "./wallet";
+import { tokenScriptHashesFor } from "./glyphs";
 
 /** Structural subset of ElectrumClient — lets tests pass a fake. */
 export interface AddressWatcher {
@@ -42,6 +43,13 @@ export interface WatchOptions {
   debounceMs?: number;
   /** Ignore notifications this soon after subscribing (see SETTLE WINDOW). */
   settleMs?: number;
+  /**
+   * Also subscribe to the ZEROED-ref NFT/FT scripthashes under which Glyph
+   * token outputs are indexed (see glyphs.ts) so incoming tokens show up in
+   * real time. Costs two extra subscriptions per used address; refused
+   * subscriptions land in `failed` and the poll still covers us.
+   */
+  includeTokens?: boolean;
 }
 
 export interface WatchHandle {
@@ -83,9 +91,25 @@ export async function watchWalletAddresses(
     lookahead = DEFAULT_LOOKAHEAD,
     debounceMs = DEFAULT_DEBOUNCE_MS,
     settleMs = DEFAULT_SETTLE_MS,
+    includeTokens = false,
   } = options;
 
   const targets = watchTargets(addresses, lookahead);
+  // Tokens are indexed under the zeroed-ref scripthash of each address's
+  // NFT/FT scripts — NOT its plain P2PKH hash — so they need their own
+  // subscriptions for incoming tokens to appear live (see glyphs.ts).
+  const tokenTargets = includeTokens
+    ? [
+        ...new Set(
+          addresses
+            .filter((a) => a.used)
+            .flatMap((a) =>
+              tokenScriptHashesFor(a.key.address).map((t) => t.hash),
+            ),
+        ),
+      ]
+    : [];
+  const allTargets = [...targets, ...tokenTargets];
   const subscribed: string[] = [];
   const failed: string[] = [];
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -103,7 +127,7 @@ export async function watchWalletAddresses(
   const startedAt = Date.now();
 
   await Promise.all(
-    targets.map(async (address) => {
+    allTargets.map(async (address) => {
       try {
         await client.subscribe(address, () => {
           // Notifications before the settle window are the subscription's own

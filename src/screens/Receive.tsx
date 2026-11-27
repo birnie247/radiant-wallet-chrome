@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
+import { copyText } from "../lib/clipboard";
 import type { Nav } from "../types";
 
 export default function Receive({ nav }: { nav: Nav }) {
@@ -28,31 +29,10 @@ export default function Receive({ nav }: { nav: Nav }) {
   }, [address]);
 
   async function copy() {
-    const done = () => {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
-    };
-    try {
-      await navigator.clipboard.writeText(address);
-      done();
-      return;
-    } catch {
-      /* fall through to legacy path */
-    }
-    try {
-      const area = document.createElement("textarea");
-      area.value = address;
-      area.setAttribute("readonly", "");
-      area.style.position = "fixed";
-      area.style.opacity = "0";
-      document.body.appendChild(area);
-      area.select();
-      document.execCommand("copy");
-      document.body.removeChild(area);
-      done();
-    } catch {
-      /* clipboard unavailable — the user can still read the address */
-    }
+    // Clipboard unavailable: the address is still on screen to read.
+    if (!(await copyText(address))) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
   }
 
   return (

@@ -1033,7 +1033,9 @@ if (process.argv.includes("--live")) {
   check("watch list covers used plus a lookahead", list.addresses.length === 4, String(list.addresses.length));
   check(
     "watch list holds scripthashes, not addresses-with-keys",
-    list.scripthashes.length === 4 &&
+    // 4 address hashes + the 2 zeroed-ref token hashes of the one used address
+    // (Glyph discovery, synced from the Android 1.4.0 build).
+    list.scripthashes.length === 6 &&
       list.scripthashes.every((s) => /^[0-9a-f]{64}$/i.test(s)),
   );
   check(
@@ -1340,6 +1342,259 @@ if (process.argv.includes("--live")) {
   store.removeItem("rxd.wallet.hiddenServers.v1");
   store.removeItem("rxd.wallet.preferredServer");
 }
+// Glyph tokens (synced from the Android 1.4.0 build): discovery hashes,
+// metadata decoding and the send-time guard rails. All offline — the money
+// path here is "never sign a token away by accident", which is testable
+// without a server.
+{
+  const glyphs = await import("../src/lib/glyphs");
+  const { encode: cborEncode } = await import("cbor-x");
+  const sdk = await import("@radiant-core/sdk");
+  const { scriptHash, zeroRefs, nftScript, ftScript, packRef, DUST_LIMIT } = sdk;
+
+  // Ref formats: listunspent's "txid{i}vout" and the REST spellings parse;
+  // the packed on-chain operand form must NOT (it goes through unpackRef).
+  const refTxid = "b2".repeat(32);
+  check(
+    "parseServerRef accepts txid{i}vout",
+    glyphs.parseServerRef(`${refTxid}i3`)?.vout === 3,
+  );
+  check(
+    "parseServerRef accepts txid:vout and txid_vout",
+    glyphs.parseServerRef(`${refTxid}:3`)?.vout === 3 &&
+      glyphs.parseServerRef(`${refTxid}_3`)?.vout === 3,
+  );
+  check(
+    "parseServerRef rejects the packed 72-hex operand",
+    glyphs.parseServerRef(packRef(refTxid, 3)) === null,
+  );
+  // ref.get wants display txid + BIG-endian vout — pinned by the Android
+  // probe against ElectrumX 1.4.1; the little-endian form resolves to nothing.
+  check(
+    "refGetArg is display txid + big-endian vout",
+    glyphs.refGetArg(refTxid, 1) === `${refTxid}00000001`,
+    glyphs.refGetArg(refTxid, 1),
+  );
+
+  // Discovery: tokens are indexed under the ZEROED-ref script hashes, and the
+  // NFT and FT variants must differ from each other and from the P2PKH hash.
+  const hashes = glyphs.tokenScriptHashesFor(k0.address);
+  check(
+    "tokenScriptHashesFor returns nft+ft zeroed-ref hashes",
+    hashes.length === 2 &&
+      hashes[0].kind === "nft" &&
+      hashes[1].kind === "ft" &&
+      hashes[0].hash === scriptHash(zeroRefs(nftScript(k0.address, glyphs.ZERO_REF))) &&
+      hashes[1].hash === scriptHash(zeroRefs(ftScript(k0.address, glyphs.ZERO_REF))) &&
+      hashes[0].hash !== hashes[1].hash,
+    hashes.map((h) => h.hash.slice(0, 10)).join(" / "),
+  );
+
+  // Metadata envelope: a `gly` push followed by CBOR. Both push-length forms
+  // (1-byte and 0x4d little-endian 2-byte) must decode — the byte/char index
+  // slip and the endianness slip each silently broke every envelope once.
+  const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const smallPayload = { v: 1, p: [2], name: "Test Glyph", main: { t: "image/png", b: pngBytes } };
+  const toHex = (u: Uint8Array) => Buffer.from(u).toString("hex");
+  const smallCbor = toHex(cborEncode(smallPayload));
+  const rawSmall = "00".repeat(8) + "03676c79" + (smallCbor.length / 2).toString(16).padStart(2, "0") + smallCbor + "00".repeat(4);
+  const decodedSmall = glyphs.extractGlyphPayload(rawSmall);
+  check(
+    "extractGlyphPayload decodes a 1-byte-push envelope",
+    decodedSmall !== null && (decodedSmall as { name?: string }).name === "Test Glyph",
+  );
+  const bigPayload = { ...smallPayload, desc: "x".repeat(200) };
+  const bigCbor = toHex(cborEncode(bigPayload));
+  const bigLen = bigCbor.length / 2;
+  const rawBig =
+    "00".repeat(8) + "03676c79" + "4d" +
+    (bigLen & 0xff).toString(16).padStart(2, "0") +
+    ((bigLen >> 8) & 0xff).toString(16).padStart(2, "0") +
+    bigCbor + "00".repeat(4);
+  check(
+    "extractGlyphPayload decodes a 0x4d little-endian push",
+    glyphs.extractGlyphPayload(rawBig) !== null,
+  );
+  check(
+    "a bare mint (no envelope) yields null, not an error",
+    glyphs.extractGlyphPayload("00".repeat(64)) === null,
+  );
+
+  // Icon boundary: only raster MIME types may become a data: URI. SVG is an
+  // XSS surface in an extension page and must be dropped at the boundary.
+  const meta = glyphs.payloadToMetadata(decodedSmall as Record<string, unknown>);
+  check(
+    "raster icon becomes a data: URI",
+    meta.iconDataUri?.startsWith("data:image/png;base64,") === true &&
+      meta.name === "Test Glyph" &&
+      meta.protocols.includes(2),
+  );
+  const svgMeta = glyphs.payloadToMetadata({
+    p: [2],
+    main: { t: "image/svg+xml", b: new Uint8Array([0x3c, 0x73, 0x76, 0x67]) },
+  });
+  check("SVG icon is dropped", svgMeta.iconDataUri === undefined);
+  const hugeMeta = glyphs.payloadToMetadata({
+    p: [2],
+    main: { t: "image/png", b: new Uint8Array(glyphs.MAX_ICON_BYTES + 1) },
+  });
+  check("oversize icon is dropped", hugeMeta.iconDataUri === undefined);
+  // Funding safety: token-carrying outputs must never reach the fee selector,
+  // and a token send with no token-free RXD at the owner address must refuse.
+  const tokenUtxo: glyphs.TokenUtxo = {
+    txid: "c3".repeat(32),
+    vout: 0,
+    value: 1_000n,
+    height: 400_000,
+    script: nftScript(k0.address, packRef(refTxid, 0)),
+    ref: packRef(refTxid, 0),
+    refDisplay: `${refTxid}:0`,
+    kind: "nft",
+    ownerAddress: k0.address,
+    ownerWif: k0.wif,
+    ownerIndex: 0,
+    ownerChange: 0,
+  };
+  const token: glyphs.TokenBalance = {
+    ref: tokenUtxo.ref,
+    refDisplay: tokenUtxo.refDisplay,
+    kind: "nft",
+    amount: 1n,
+    lockedPhotons: tokenUtxo.value,
+    utxos: [tokenUtxo],
+  };
+  const funding = glyphs.tokenFreeFunding(scan, k0.address);
+  check("tokenFreeFunding keeps plain RXD", funding.length === 1);
+  const poisonedScan = {
+    ...scan,
+    utxos: [
+      ...scan.utxos,
+      { ...scan.utxos[0], txid: "d4".repeat(32), refs: [`${refTxid}i0`] },
+    ],
+  };
+  check(
+    "tokenFreeFunding screens out ref-carrying outputs",
+    glyphs.tokenFreeFunding(poisonedScan, k0.address).length === 1,
+  );
+  const fee = glyphs.estimateTokenSendFee(scan, token, null, 10_000n);
+  check(
+    "estimateTokenSendFee produces a positive fee when funded",
+    fee !== null && fee > 0n,
+    fee === null ? "null" : `${fee} photons`,
+  );
+  const emptyScan = { ...scan, utxos: [], confirmed: 0n, unconfirmed: 0n, total: 0n };
+  check(
+    "estimateTokenSendFee is null with no funding",
+    glyphs.estimateTokenSendFee(emptyScan, token, null, 10_000n) === null,
+  );
+
+  const fakeClient = {} as unknown as InstanceType<typeof sdk.ElectrumClient>;
+  let wholeGuard = "";
+  try {
+    await glyphs.sendWholeToken({
+      client: fakeClient,
+      scan: emptyScan,
+      token,
+      to: wallet.deriveKey(5).address,
+    });
+  } catch (e) {
+    wholeGuard = (e as Error).message;
+  }
+  check(
+    "sendWholeToken refuses without token-free fee funding",
+    wholeGuard.includes("No token-free RXD"),
+    wholeGuard,
+  );
+
+  const ftToken: glyphs.TokenBalance = { ...token, kind: "ft", amount: 1_000n };
+  const ftGuard = async (amount: bigint) => {
+    try {
+      await glyphs.sendFtAmount({
+        client: fakeClient,
+        scan,
+        token: ftToken,
+        to: wallet.deriveKey(5).address,
+        amount,
+      });
+      return "";
+    } catch (e) {
+      return (e as Error).message;
+    }
+  };
+  check("sendFtAmount refuses zero", (await ftGuard(0n)).includes("greater than zero"));
+  check("sendFtAmount refuses over-balance", (await ftGuard(2_000n)).includes("You hold"));
+  check(
+    "sendFtAmount refuses sub-dust (the exact-balance trap)",
+    (await ftGuard(DUST_LIMIT - 1n)).includes("Minimum send"),
+  );
+
+  // Live subscriptions: includeTokens must add the two zeroed-ref hashes per
+  // used address, and the background watch list must carry the same set.
+  const { watchWalletAddresses } = await import("../src/lib/liveUpdates");
+  const subscribed: string[] = [];
+  const watcher = {
+    subscribe: async (target: string) => {
+      subscribed.push(target);
+      return null;
+    },
+    unsubscribe: async () => undefined,
+  };
+  const watchAddresses = [
+    { key: k0, used: true, change: 0 },
+    { key: wallet.deriveKey(1), used: false, change: 0 },
+  ];
+  const handle = await watchWalletAddresses(watcher, watchAddresses, () => {}, {
+    includeTokens: true,
+  });
+  check(
+    "includeTokens subscribes the zeroed-ref hashes too",
+    handle.subscribed.includes(hashes[0].hash) &&
+      handle.subscribed.includes(hashes[1].hash) &&
+      handle.subscribed.includes(k0.address),
+    `${handle.subscribed.length} subscribed`,
+  );
+  await handle.dispose();
+  const { buildWatchList } = await import("../src/lib/watchList");
+  const list = buildWatchList("wss://electrumx.example.org:50022", watchAddresses);
+  check(
+    "background watch list carries the token hashes",
+    list.scripthashes.includes(hashes[0].hash) &&
+      list.scripthashes.includes(hashes[1].hash) &&
+      list.scripthashes.length === list.addresses.length + 2,
+    `${list.scripthashes.length} scripthashes`,
+  );
+
+  // Coin-type detection (1.3.1): the chain is asked which address set a phrase
+  // uses. A fake client answers history only for the legacy set's addresses.
+  const { detectCoinType } = await import("../src/lib/wallet");
+  const legacyWallet = HDWallet.fromMnemonic(MNEMONIC, { network: "mainnet", coinType: 0 });
+  const legacyAddresses = new Set(
+    [0, 1].flatMap((change) =>
+      legacyWallet.deriveRange(0, 20, change).map((k) => k.address),
+    ),
+  );
+  const historyClient = {
+    getHistory: async (address: string) =>
+      legacyAddresses.has(address) ? [{ tx_hash: "e5".repeat(32), height: 1 }] : [],
+  } as unknown as InstanceType<typeof sdk.ElectrumClient>;
+  const guess = await detectCoinType(historyClient, MNEMONIC, "mainnet");
+  check(
+    "detectCoinType picks the legacy set when only it has activity",
+    guess.coinType === 0 && !guess.inconclusive && guess.hits[0] > 0 && guess.hits[512] === 0,
+    `hits 0=${guess.hits[0]} 512=${guess.hits[512]}`,
+  );
+  const deadClient = {
+    getHistory: async () => {
+      throw new Error("unreachable");
+    },
+  } as unknown as InstanceType<typeof sdk.ElectrumClient>;
+  const inconclusive = await detectCoinType(deadClient, MNEMONIC, "mainnet");
+  check(
+    "an unreachable server is inconclusive, not 'empty'",
+    inconclusive.inconclusive && inconclusive.coinType === 512,
+  );
+}
+
 console.log(`\n${failures === 0 ? "ALL BROWSER-PATH CHECKS PASSED" : failures + " CHECK(S) FAILED"}`);
 process.exit(failures === 0 ? 0 : 1);
 

@@ -261,7 +261,8 @@ export async function unlockVault(passphrase: string): Promise<WalletSecrets> {
 /** Update the stored settings without changing the passphrase. */
 export async function updateVaultSettings(
   passphrase: string,
-  patch: Partial<Pick<WalletSecrets, "server" | "label">>,
+  /** `coinType: undefined` drops the key, which means the 512 default. */
+  patch: Partial<Pick<WalletSecrets, "server" | "label" | "coinType">>,
 ): Promise<WalletSecrets> {
   const current = await unlockVault(passphrase);
   const next = { ...current, ...patch };

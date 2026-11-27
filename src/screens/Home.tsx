@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { formatRxd, shortId } from "../lib/money";
 import { formatUsdBalance } from "../lib/price";
 import { MAX_TIP_DRIFT } from "../lib/wallet";
 import { describeProofs } from "../lib/spv";
+import { copyText } from "../lib/clipboard";
 import ActivityList from "../components/ActivityList";
 import BrandMark from "../components/BrandMark";
 import type { Nav } from "../types";
@@ -9,6 +11,9 @@ import type { Nav } from "../types";
 export default function Home({ nav }: { nav: Nav }) {
   const { session } = nav;
   const { scan, secrets, endpoint } = session;
+
+  // Which address was just copied, so the row can say so for a moment.
+  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
 
   // Count every used address, not a display-sized slice: the row is a fact
   // about the wallet, and capping it at 6 silently under-reported once the
@@ -25,6 +30,16 @@ export default function Home({ nav }: { nav: Nav }) {
   const perAddress = new Map<string, bigint>();
   for (const u of scan.utxos) {
     perAddress.set(u.ownerAddress, (perAddress.get(u.ownerAddress) ?? 0n) + u.value);
+  }
+
+  // Copying needs the whole address, not the ellipsised label, and only claims
+  // success when the clipboard write actually succeeded.
+  async function copyAddress(address: string) {
+    if (!(await copyText(address))) return;
+    setCopiedAddress(address);
+    window.setTimeout(() => {
+      setCopiedAddress((current) => (current === address ? null : current));
+    }, 1600);
   }
 
   return (
@@ -76,10 +91,16 @@ export default function Home({ nav }: { nav: Nav }) {
                 {formatRxd(scan.unconfirmed, 6)} pending
               </span>
             )}
+            {nav.lockedPhotons > 0n && (
+              <span style={{ color: "var(--accent)" }}>
+                {formatRxd(nav.lockedPhotons, 4)} RXD in tokens — not spendable
+                as fees
+              </span>
+            )}
           </div>
         </div>
 
-        <div className="actions">
+        <div className="actions trio">
           <button className="action" onClick={() => nav.go("send")}>
             <span className="glyph">↑</span>
             Send
@@ -87,6 +108,10 @@ export default function Home({ nav }: { nav: Nav }) {
           <button className="action" onClick={() => nav.go("receive")}>
             <span className="glyph">↓</span>
             Receive
+          </button>
+          <button className="action" onClick={() => nav.go("tokens")}>
+            <span className="glyph">◈</span>
+            Tokens
           </button>
         </div>
 
@@ -154,15 +179,36 @@ export default function Home({ nav }: { nav: Nav }) {
           <>
             <div className="section-title">Funds by address</div>
             <div className="card tight">
-              {[...perAddress.entries()].map(([address, value]) => (
-                <div className="row" key={address}>
-                  <div className="grow">
-                    <div className="sub">{shortId(address, 12, 10)}</div>
-                  </div>
-                  <div className="value">{formatRxd(value, 6)}</div>
-                </div>
-              ))}
+              {[...perAddress.entries()].map(([address, value]) => {
+                const copied = copiedAddress === address;
+                return (
+                  <button
+                    key={address}
+                    type="button"
+                    className="row row-button"
+                    onClick={() => void copyAddress(address)}
+                    title={address}
+                    aria-label={
+                      copied
+                        ? `Address ${address} copied`
+                        : `Copy address ${address}`
+                    }
+                  >
+                    <div className="grow">
+                      <div className="sub">{shortId(address, 12, 10)}</div>
+                    </div>
+                    <div className="value">{formatRxd(value, 6)}</div>
+                    <span
+                      className={copied ? "copy-tag copied" : "copy-tag"}
+                      aria-hidden="true"
+                    >
+                      {copied ? "copied ✓" : "copy"}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
+            <div className="hint">Tap an address to copy the full value.</div>
           </>
         )}
 

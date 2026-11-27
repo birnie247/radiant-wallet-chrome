@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HDWallet } from "@radiant-core/sdk";
-import { hasVault, unlockVault, RADIANT_COIN_TYPE, type WalletSecrets } from "./lib/vault";
+import { hasVault, unlockVault, updateVaultSettings, RADIANT_COIN_TYPE, type WalletSecrets } from "./lib/vault";
 import { connect, crossCheckTip, scanWallet } from "./lib/wallet";
 import { getPreferredServer } from "./lib/servers";
 import { loadHistory, type HistoryEntry } from "./lib/history";
 import { watchWalletAddresses, type WatchHandle } from "./lib/liveUpdates";
+import { scanTokens, type TokenBalance } from "./lib/glyphs";
 import {
   fetchRxdUsd,
   loadFiatEnabled,
@@ -38,6 +39,9 @@ import Home from "./screens/Home";
 import Receive from "./screens/Receive";
 import Send from "./screens/Send";
 import Settings from "./screens/Settings";
+import Tokens from "./screens/Tokens";
+import TokenDetail from "./screens/TokenDetail";
+import TokenSend from "./screens/TokenSend";
 
 export default function App() {
   const [booted, setBooted] = useState(false);
@@ -63,6 +67,17 @@ export default function App() {
     checked: number;
     proven: number;
   } | null>(null);
+
+  /** Glyph token balances (identity = ref), refreshed in the background. */
+  const [tokens, setTokens] = useState<TokenBalance[]>([]);
+  const [tokensScanning, setTokensScanning] = useState(false);
+  const [tokensError, setTokensError] = useState(false);
+  /** RXD photons locked inside token UTXOs — reported separately from RXD. */
+  const [lockedPhotons, setLockedPhotons] = useState<bigint>(0n);
+  /** Token opened on the detail/send screens, kept in sync across re-scans. */
+  const [selectedToken, setSelectedToken] = useState<TokenBalance | null>(null);
+  /** Drops results from superseded token scans (slow older run must lose). */
+  const tokenEpochRef = useRef(0);
 
   /** Background watching (offscreen document) is on unless the user opts out. */
   const [watchEnabled, setWatchEnabledState] = useState<boolean>(loadWatchEnabled);
@@ -255,6 +270,47 @@ export default function App() {
     }
   }, [verifySpv]);
 
+  /**
+   * Read the Glyph token indexes for the scanned addresses.
+   *
+   * Strictly background work: a failing token index must never affect
+   * balances or spending, so errors keep the previous list and only set the
+   * stale flag. An epoch counter discards results from superseded runs, since
+   * the 60s poll plus burst pushes can stack several scans.
+   */
+  const hydrateTokens = useCallback(async (next: Session) => {
+    const epoch = ++tokenEpochRef.current;
+    setTokensScanning(true);
+    try {
+      const result = await scanTokens(next.client, next.scan.addresses);
+      if (epoch !== tokenEpochRef.current) return;
+      setTokens(result.tokens);
+      setTokensError(false);
+      setLockedPhotons(result.lockedPhotons);
+      // Keep any open detail/send screen pointing at the fresh balance of the
+      // same artifact; a token that left the wallet closes nothing — the screen
+      // re-renders with the new (possibly empty) view on next action.
+      setSelectedToken((cur) =>
+        cur ? result.tokens.find((t) => t.ref === cur.ref) ?? null : null,
+      );
+    } catch {
+      if (epoch !== tokenEpochRef.current) return;
+      setTokensError(true);
+    } finally {
+      if (epoch === tokenEpochRef.current) setTokensScanning(false);
+    }
+  }, []);
+
+  const openToken = useCallback((token: TokenBalance) => {
+    setSelectedToken(token);
+    setScreen("tokenDetail");
+  }, []);
+
+  const openTokenSend = useCallback((token: TokenBalance) => {
+    setSelectedToken(token);
+    setScreen("tokenSend");
+  }, []);
+
   /** One scan at a time; push notifications arrive in bursts. */
   const scanningRef = useRef(false);
   /** Active push subscriptions for this unlocked session. */
@@ -280,6 +336,9 @@ export default function App() {
         next.client,
         next.scan.addresses,
         () => onPushRef.current(),
+        // Also subscribe to the zeroed-ref token scripthashes so incoming
+        // Glyphs trigger the same live re-scan as ordinary payments.
+        { includeTokens: true },
       );
     } catch {
       /* ignore — the poll covers it */
@@ -308,7 +367,18 @@ export default function App() {
         onProgress: setBusy,
       });
 
-      const next: Session = { secrets, wallet, client, endpoint, scan };
+      const next: Session = {
+        secrets,
+        wallet,
+        client,
+        endpoint,
+        scan,
+        // Token fields start empty; hydrateTokens fills them in the background.
+        tokens: [],
+        tokensScanning: false,
+        tokensError: false,
+        lockedPhotons: 0n,
+      };
       setSession(next);
       setScreen("home");
       // Remember the unlock so reopening the popup is not a passphrase prompt.
@@ -318,6 +388,7 @@ export default function App() {
       await saveSession(secrets, loadUnlockTimeoutMs());
       void hydrateHistory(next);
       void hydratePrice();
+      void hydrateTokens(next);
       // Subscribe to pushes so the balance keeps itself current.
       void establishWatch(next);
       // And let the background keep watching once the popup closes. Only the
@@ -326,7 +397,7 @@ export default function App() {
     } finally {
       setBusy("");
     }
-  }, [hydrateHistory, hydratePrice, establishWatch, armWatcher]);
+  }, [hydrateHistory, hydratePrice, establishWatch, armWatcher, hydrateTokens]);
 
   /**
    * Restore an unlocked session left behind by a previous popup.
@@ -374,6 +445,7 @@ export default function App() {
         setSession(next);
         void hydrateHistory(next);
         void hydratePrice();
+        void hydrateTokens(next);
         // The set of addresses with activity can grow, so re-subscribe.
         void establishWatch(next);
       } finally {
@@ -381,7 +453,7 @@ export default function App() {
         if (!silent) setBusy("");
       }
     },
-    [hydrateHistory, hydratePrice, establishWatch],
+    [hydrateHistory, hydratePrice, establishWatch, hydrateTokens],
   );
 
   /** User-initiated refresh (Home screen button, after a send). */
@@ -436,13 +508,55 @@ export default function App() {
       setSession(next);
       void hydrateHistory(next);
       void hydratePrice();
+      void hydrateTokens(next);
       void establishWatch(next);
       // The watched endpoint may have changed with the server switch.
       armWatcher(next, loadWatchEnabled());
     } finally {
       setBusy("");
     }
-  }, [hydrateHistory, hydratePrice, establishWatch, armWatcher]);
+  }, [hydrateHistory, hydratePrice, establishWatch, armWatcher, hydrateTokens]);
+
+  /**
+   * Re-derive the wallet under another SLIP-44 coin type (Settings →
+   * Derivation). The passphrase is required because the vault is re-encrypted
+   * with the new value; a wrong one fails before anything changes.
+   */
+  const switchDerivation = useCallback(
+    async (coinType: number, passphrase: string) => {
+      const current = sessionRef.current;
+      if (!current) return;
+      setBusy("Checking passphrase…");
+      try {
+        // Throws on a wrong passphrase, before anything is derived or written.
+        const candidate = await unlockVault(passphrase);
+        const wallet = HDWallet.fromMnemonic(candidate.mnemonic, {
+          network: candidate.network,
+          coinType,
+        });
+        setBusy("Scanning the blockchain…");
+        const scan = await scanWallet(current.client, wallet, {
+          onProgress: setBusy,
+        });
+        // Persist last: from here on the wallet on screen matches the vault.
+        const secrets = await updateVaultSettings(passphrase, { coinType });
+        const next: Session = { ...current, secrets, wallet, scan };
+        setSession(next);
+        // The remembered unlock must carry the new coin type too, or reopening
+        // the popup would restore the previous address set (see session.ts).
+        await saveSession(secrets, loadUnlockTimeoutMs());
+        void hydrateHistory(next);
+        void hydrateTokens(next);
+        // The watched address set is entirely new — foreground subscriptions
+        // and the background watch list both have to follow it.
+        void establishWatch(next);
+        armWatcher(next, loadWatchEnabled());
+      } finally {
+        setBusy("");
+      }
+    },
+    [hydrateHistory, establishWatch, hydrateTokens, armWatcher],
+  );
 
   const lock = useCallback(() => {
     const current = sessionRef.current;
@@ -465,6 +579,13 @@ export default function App() {
     setHasExisting(hasVault());
     setHistory(null);
     setHistoryTotal(0);
+    // Token state is session-scoped: nothing survives the lock.
+    tokenEpochRef.current++; // invalidate any in-flight token scan
+    setTokens([]);
+    setTokensScanning(false);
+    setTokensError(false);
+    setLockedPhotons(0n);
+    setSelectedToken(null);
   }, []);
 
   // Tear the socket down when the popup goes away. There is no background
@@ -504,12 +625,24 @@ export default function App() {
     );
   }
 
+  // The session handed to screens carries the token layer, merged from state
+  // (this object is display-only — sessionRef keeps the raw scan base).
+  // `session` is a Session here: the `if (!session)` branch already returned.
+  const enrichedSession: Session = {
+    ...session,
+    tokens,
+    tokensScanning,
+    tokensError,
+    lockedPhotons,
+  };
+
   const nav = {
-    session,
+    session: enrichedSession,
     go: setScreen,
     refresh,
     lock,
     reconnect,
+    switchDerivation,
     busy,
     history,
     historyTotal,
@@ -525,6 +658,12 @@ export default function App() {
     price,
     fiatEnabled,
     setFiatEnabled,
+    tokens,
+    tokensScanning,
+    tokensError,
+    lockedPhotons,
+    openToken,
+    openTokenSend,
   };
 
   return (
@@ -533,6 +672,19 @@ export default function App() {
       {screen === "receive" && <Receive nav={nav} />}
       {screen === "send" && <Send nav={nav} />}
       {screen === "settings" && <Settings nav={nav} />}
+      {screen === "tokens" && <Tokens nav={nav} />}
+      {screen === "tokenDetail" &&
+        (selectedToken ? (
+          <TokenDetail nav={nav} token={selectedToken} />
+        ) : (
+          <Home nav={nav} />
+        ))}
+      {screen === "tokenSend" &&
+        (selectedToken ? (
+          <TokenSend nav={nav} token={selectedToken} />
+        ) : (
+          <Home nav={nav} />
+        ))}
       {busy && (
         <div className="sheet-backdrop">
           <div className="sheet center">

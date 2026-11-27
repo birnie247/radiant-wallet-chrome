@@ -29,6 +29,7 @@ import {
   type Utxo,
 } from "@radiant-core/sdk";
 import { autoCandidates, crossCheckCandidates, findServer } from "./servers";
+import { LEGACY_COIN_TYPE, RADIANT_COIN_TYPE } from "./vault";
 
 export const GAP_LIMIT = 20;
 export const HARD_ADDRESS_CAP = 200;
@@ -400,6 +401,130 @@ export async function scanWallet(
     nextReceive,
     nextChange,
   };
+}
+
+/* ------------------------------------------------- derivation detection --- */
+
+/** Addresses per chain probed when guessing a seed's derivation. */
+export const DETECT_ADDRESSES = 20;
+
+export interface CoinTypeGuess {
+  /** Coin type to derive with: 512 (current) or 0 (pre-512 wallets). */
+  coinType: number;
+  /** History rows seen per candidate coin type, across both chains. */
+  hits: Record<number, number>;
+  /** True when no server answered, so nothing was actually compared. */
+  inconclusive: boolean;
+}
+
+/**
+ * Work out which SLIP-44 coin type a recovery phrase was derived under.
+ *
+ * The same phrase under coin type 512 and coin type 0 yields two *disjoint*
+ * address sets, and there is no offline way to tell which one a wallet used.
+ * The only honest test is to ask the chain: derive the first
+ * {@link DETECT_ADDRESSES} addresses of both the receive and change chains for
+ * each candidate and count history rows. An old wallet shows activity on 0 and
+ * silence on 512 — which is precisely the question "why is my restored wallet
+ * empty?".
+ *
+ * Both chains are probed because a wallet that has only ever *sent* keeps its
+ * remaining funds on `…/1/i`; checking the receive chain alone would call such a
+ * seed unused.
+ *
+ * Never throws: unreachable servers return the default marked `inconclusive`,
+ * because a failed probe must not block a restore. Settings can switch it later.
+ */
+export async function detectCoinType(
+  client: ElectrumClient,
+  mnemonic: string,
+  network: NetworkName,
+): Promise<CoinTypeGuess> {
+  const candidates = [RADIANT_COIN_TYPE, LEGACY_COIN_TYPE];
+  const hits: Record<number, number> = {};
+  let answered = 0;
+
+  for (const coinType of candidates) {
+    let wallet: HDWallet;
+    try {
+      wallet = HDWallet.fromMnemonic(mnemonic, { network, coinType });
+    } catch {
+      hits[coinType] = 0;
+      continue;
+    }
+    const keys = [0, 1].flatMap((change) =>
+      wallet.deriveRange(0, DETECT_ADDRESSES, change),
+    );
+    const rows = await mapLimit(keys, 6, async (key) => {
+      try {
+        const history = await client.getHistory(key.address);
+        answered++;
+        return history.length;
+      } catch {
+        return 0;
+      }
+    });
+    hits[coinType] = rows.reduce((sum, n) => sum + n, 0);
+  }
+
+  const inconclusive = answered === 0;
+  // Only move off the default when the legacy set is strictly busier: both-empty
+  // (a fresh phrase) and activity-in-both (impossible in practice) stay on 512.
+  const coinType =
+    !inconclusive && hits[LEGACY_COIN_TYPE] > hits[RADIANT_COIN_TYPE]
+      ? LEGACY_COIN_TYPE
+      : RADIANT_COIN_TYPE;
+
+  return { coinType, hits, inconclusive };
+}
+
+export interface DetectSeedOptions {
+  network?: NetworkName;
+  server?: string;
+  /**
+   * Connection budget. Shorter than a normal connect on purpose: this runs while
+   * the user waits on the restore screen, and an unreachable server must fall
+   * back to the default quickly rather than stall the restore for 20s.
+   */
+  budgetMs?: number;
+  onProgress?: (message: string) => void;
+}
+
+/**
+ * {@link detectCoinType} with its own short-lived connection, for the restore
+ * flow — at that point the wallet is not open yet, so there is no client to
+ * borrow. The socket is always closed, including on failure.
+ *
+ * The probe reveals {@link DETECT_ADDRESSES} addresses of each set to whichever
+ * server answers. They are derived from the user's own phrase and mostly unused,
+ * but the server does see them — that is stated in the docs and release notes
+ * rather than left implicit.
+ */
+export async function detectSeedDerivation(
+  mnemonic: string,
+  options: DetectSeedOptions = {},
+): Promise<CoinTypeGuess> {
+  const network = options.network ?? "mainnet";
+  let connection: Connection | null = null;
+  try {
+    options.onProgress?.("Checking which address set this phrase uses…");
+    connection = await connect(network, options.server, undefined, {
+      budgetMs: options.budgetMs ?? 10_000,
+    });
+    return await detectCoinType(connection.client, mnemonic, network);
+  } catch {
+    return {
+      coinType: RADIANT_COIN_TYPE,
+      hits: { [RADIANT_COIN_TYPE]: 0, [LEGACY_COIN_TYPE]: 0 },
+      inconclusive: true,
+    };
+  } finally {
+    try {
+      connection?.client.close();
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 export type AddressCheck = { ok: true } | { ok: false; error: string };

@@ -3,6 +3,7 @@ import type { WalletSecrets } from "./lib/vault";
 import type { ScanResult } from "./lib/wallet";
 import type { HistoryEntry } from "./lib/history";
 import type { PriceResult } from "./lib/price";
+import type { TokenBalance } from "./lib/glyphs";
 
 /** An unlocked, connected wallet. Lives only in memory. */
 export interface Session {
@@ -11,9 +12,24 @@ export interface Session {
   client: ElectrumClient;
   endpoint: string;
   scan: ScanResult;
+  /** Glyph token balances, grouped by ref. Empty when the wallet owns none. */
+  tokens: TokenBalance[];
+  /** True while the background token scan is running. */
+  tokensScanning: boolean;
+  /** True when the last token scan failed (stale list shown as-is). */
+  tokensError: boolean;
+  /** Sum of RXD photons locked up inside token UTXOs across all tokens. */
+  lockedPhotons: bigint;
 }
 
-export type Screen = "home" | "receive" | "send" | "settings";
+export type Screen =
+  | "home"
+  | "receive"
+  | "send"
+  | "settings"
+  | "tokens"
+  | "tokenDetail"
+  | "tokenSend";
 
 /** Navigation + wallet handles handed to every screen. */
 export interface Nav {
@@ -23,6 +39,13 @@ export interface Nav {
   lock: () => void;
   /** Drop the current socket and connect again (used after a server change). */
   reconnect: () => Promise<void>;
+  /**
+   * Re-derive this wallet under another SLIP-44 coin type and re-scan.
+   *
+   * Changing the coin type re-encrypts the vault, so the passphrase is required;
+   * a wrong one throws before anything on screen changes.
+   */
+  switchDerivation: (coinType: number, passphrase: string) => Promise<void>;
   /** Non-empty while a long operation is running. */
   busy: string;
   /** Confirmation-annotated history, newest first. Null until loaded. */
@@ -66,6 +89,17 @@ export interface Nav {
    * a warning, not a rounding artefact.
    */
   spvProofs: { checked: number; proven: number } | null;
+
+  /** Glyph token balances, grouped by ref (identity — never name/ticker). */
+  tokens: TokenBalance[];
+  tokensScanning: boolean;
+  tokensError: boolean;
+  /** RXD photons locked inside token UTXOs; excluded from spending. */
+  lockedPhotons: bigint;
+  /** Open a token's detail screen. */
+  openToken: (token: TokenBalance) => void;
+  /** Open the send-token flow for this token. */
+  openTokenSend: (token: TokenBalance) => void;
 
   /** RXD/USD price, or null when unavailable or fiat display is off. */
   price: PriceResult | null;

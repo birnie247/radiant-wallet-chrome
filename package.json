@@ -1,6 +1,6 @@
 {
   "name": "rxd-wallet-extension",
-  "version": "1.1.0",
+  "version": "1.4.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -22,6 +22,7 @@
     "@radiant-core/radiantjs": "^2.0.6",
     "@radiant-core/sdk": "^0.2.1",
     "buffer": "^6.0.3",
+    "cbor-x": "^1.6.4",
     "js-sha512": "^0.8.0",
     "qrcode": "^1.5.4",
     "react": "^19.3.1",

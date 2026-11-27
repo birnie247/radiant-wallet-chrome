@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { formatRxd, shortId } from "../lib/money";
 import { explorerTxUrl } from "../lib/explorer";
 import { openExternalUrl } from "../lib/openTab";
@@ -126,6 +127,11 @@ export default function ActivityList({
   entries: HistoryEntry[] | null;
   totalKnown: number;
 }) {
+  // Collapsed by default: the newest transaction is the one worth the screen.
+  // The rest stay one tap away instead of pushing the balance off a 600px
+  // popup. `entries` is already capped at the newest 25 by loadHistory().
+  const [expanded, setExpanded] = useState(false);
+
   if (entries === null) {
     return (
       <div className="card tight center" style={{ padding: 26 }}>
@@ -148,18 +154,46 @@ export default function ActivityList({
     );
   }
 
+  const visible = expanded ? entries : entries.slice(0, 1);
+  const hiddenCount = entries.length - visible.length;
+
   return (
     <>
-      <div className="card tight">
-        {entries.map((entry) => (
+      <div className="card tight" id="activity-rows">
+        {visible.map((entry) => (
           <ActivityRow key={`${entry.txid}`} entry={entry} />
         ))}
       </div>
-      {totalKnown > entries.length && (
-        <div className="hint">
-          Showing the {entries.length} most recent of {totalKnown} transactions.
-        </div>
+
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          className="expand-toggle"
+          aria-expanded={expanded}
+          aria-controls="activity-rows"
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <span>
+            {expanded ? "Show latest only" : `Show last ${entries.length}`}
+          </span>
+          <span className="expand-caret" aria-hidden="true">
+            {expanded ? "▴" : "▾"}
+          </span>
+        </button>
       )}
+
+      {expanded
+        ? totalKnown > entries.length && (
+            <div className="hint">
+              Showing the {entries.length} most recent of {totalKnown}{" "}
+              transactions.
+            </div>
+          )
+        : totalKnown > 1 && (
+            <div className="hint">
+              Latest of {totalKnown} transactions.
+            </div>
+          )}
     </>
   );
 }

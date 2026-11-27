@@ -573,6 +573,50 @@ button.row-button:active {
   background: var(--bg-elev);
 }
 
+/* Funds by address: the whole row copies, and says so afterwards. */
+.copy-tag {
+  flex: 0 0 auto;
+  padding-left: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.copy-tag.copied {
+  color: var(--success);
+}
+
+/* Recent activity: the newest row, plus a one-tap expander for the last 25. */
+.expand-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 9px 12px;
+  appearance: none;
+  background: transparent;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.expand-toggle:active {
+  background: var(--bg-elev);
+  color: var(--text);
+}
+
+.expand-caret {
+  font-size: 10px;
+}
+
 .row-chevron {
   flex: 0 0 auto;
   padding-left: 8px;
@@ -819,6 +863,104 @@ button.row-button:active {
   background: var(--line);
   border: none;
   margin: 2px 0;
+}
+
+/* ---------------- glyph tokens ---------------- */
+
+/* Three-way Home actions (Send / Receive / Tokens). */
+.actions.trio {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.token-icon {
+  flex: 0 0 auto;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  border: 1px solid var(--line);
+  background: var(--bg-elev-2);
+  display: block;
+}
+
+.token-icon-fallback {
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-08);
+  border-color: var(--accent-25);
+}
+
+.token-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.token-head {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.token-head-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.token-name {
+  font-weight: 700;
+  font-size: 19px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.token-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.token-amount {
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.token-amount .balance-label {
+  margin-bottom: 2px;
+}
+
+.token-desc {
+  font-size: 14px;
+  color: var(--text-body);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.token-attrs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.token-attr {
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text-body);
+  overflow-wrap: anywhere;
+}
+
+.token-attr b {
+  color: var(--text-faint);
+  font-weight: 600;
 }
 
 /* ============================================================

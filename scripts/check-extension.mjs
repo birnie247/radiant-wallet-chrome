@@ -336,16 +336,19 @@ for (let i = 0; i < 40; i++) {
     mounted: !!document.querySelector('#root .app'),
   })`).catch(() => null);
   const seen = `${afterReload?.body ?? ""}`;
-  if (/welcome back|connect|scanning|create a new wallet/i.test(seen)) break;
+  if (/welcome back|connect|scanning|create a new wallet|total balance/i.test(seen)) break;
 }
 // Landing on either Unlock ("Welcome back") or the connecting splash both prove
 // the wallet persisted — the splash actually proves more, because it means the
-// remembered session in chrome.storage.session was restored too. What must never
-// happen is onboarding over an existing wallet.
+// remembered session in chrome.storage.session was restored too. A fast
+// reconnect can land straight on Home ("Total balance"), which proves the most:
+// the session was restored AND the re-scan finished. What must never happen is
+// onboarding over an existing wallet.
 const body = afterReload?.body ?? "";
 const recovered =
   /welcome back/i.test(`${afterReload?.heading ?? ""} ${body}`) ||
-  /connect|scanning/i.test(body);
+  /connect|scanning/i.test(body) ||
+  /total balance/i.test(body);
 check(
   "wallet survives a popup reload (no onboarding screen)",
   afterReload?.mounted === true && recovered && !/create a new wallet/i.test(body),

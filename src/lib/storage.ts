@@ -94,6 +94,21 @@ export function removeItem(key: string): void {
   });
 }
 
+/**
+ * Keys currently held in the mirror that start with `prefix`.
+ *
+ * Used by bounded caches (see glyphs.ts) to evict their own entries when space
+ * runs out — the mirror is the synchronous source of truth, so enumerating it
+ * needs no async chrome.storage call.
+ */
+export function keysWithPrefix(prefix: string): string[] {
+  const out: string[] = [];
+  for (const key of mirror.keys()) {
+    if (key.startsWith(prefix)) out.push(key);
+  }
+  return out;
+}
+
 /** Test hook: drop all state so a fresh scenario starts clean. */
 export function __resetForTests(): void {
   mirror.clear();
